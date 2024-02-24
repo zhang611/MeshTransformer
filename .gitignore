@@ -1,0 +1,40 @@
+
+# 数据集和一些模型
+/PSBdata/*
+*.off
+
+# 实验结果
+/resule*/*
+/checkpoints/*
+/temp/*
+
+# 中间文件
+ProbMatrix*.txt
+Result*.txt
+
+
+
+
+# python的中间文件
+__pycache__/*
+.cache
+__pypackages__/*
+
+.idea
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
