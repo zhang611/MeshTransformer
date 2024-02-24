@@ -2,16 +2,22 @@
 # 数据集和一些模型
 /PSBdata/*
 *.off
+*.npz
+
 
 # 实验结果
-/resule*/*
+/result*/*
 /checkpoints/*
 /temp/*
 
-# 中间文件
-ProbMatrix*.txt
-Result*.txt
 
+
+
+
+# matlab非代码文件
+*.txt
+!requirements.txt
+/matlab/look/*
 
 
 
