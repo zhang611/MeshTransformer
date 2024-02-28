@@ -4,6 +4,9 @@ import h5py
 import numpy as np
 from torch.utils.data import Dataset
 
+"""
+应该是师兄参考的论文，点云模型的
+"""
 
 def download():
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))

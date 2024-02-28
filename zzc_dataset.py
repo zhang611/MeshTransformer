@@ -79,7 +79,8 @@ class PSBDataset(Dataset):
         f0 = random.randint(0, 10000)  # 随机选择初始点f0
         seq, jump = get_seq_random_walk_random_global_jumps(meta, f0, 300)
 
-        feature = meta['face_feature']   # (27648, 628)
+        # feature = meta['face_feature']   # (27648, 628)
+        feature = meta['face_center']   # (27648, 628)
         label = meta['label']            # (27648, )
 
         feature_seq = feature[seq]       # (301, 628)

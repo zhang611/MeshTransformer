@@ -12,6 +12,7 @@ import zzc_net
 
 def train():
     # 加载数据集
+    # dataset = zzc_dataset.PSBDataset('matlab/data/PSB/teddy')
     dataset = zzc_dataset.PSBDataset('PSBdata')
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
 
@@ -29,7 +30,7 @@ def train():
             # data, label = data.cuda(), label.cuda()
 
             # 如果要用MLP输入就要是(1200, 628)，用RNN再考虑顺序
-            data = data.view(-1, 628)
+            data = data.view(-1, 3)
             data = torch.tensor(data, dtype=torch.float32)
             label = label.view(-1)
             label = label.to(dtype=torch.int64)

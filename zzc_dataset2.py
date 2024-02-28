@@ -16,14 +16,20 @@ from torch.utils.data import DataLoader
 20个模型，16个训练集，4个测试集
 首先在16个模型里面随机选一个模型，然后随机选一个初始点，游走产生一条300个面的序列索引
 用索引得到特征和标签
-
-
 '''
 
+
+"""
+区别：
+这个里面用的是ring所以，get_seq_random_walk_random_global_jumps不一样
+这个计划使用更多特征
+"""
 
 def get_seq_random_walk_random_global_jumps(mesh_extra, f0, seq_len):
     """mesh_extra是保存结果的，f0是随机的初始点，seq_len是300序列长度"""
     # nbrs = mesh_extra['center_edges']  # 用顶点索引定义的边(27648, 3)  备选点就是这三个相邻的面
+    # for i in range(nbrs.shape[0]):
+    #     nbrs[i] = list(nbrs[i])
     nbrs = mesh_extra['ring']  # 用顶点索引定义的边(27648, 3)  备选点就是这三个相邻的面
     nbrs = nbrs.T - 1
     nbrs = nbrs.astype(int)
@@ -83,29 +89,30 @@ class PSBDataset(Dataset):
         meta = np.load(filename, encoding='latin1', allow_pickle=True)  # 加载处理好的模型字典
 
         f0 = random.randint(0, 10000)  # 随机选择初始点f0
-        seq, jump = get_seq_random_walk_random_global_jumps(meta, f0, 300)
+        seq, jump = get_seq_random_walk_random_global_jumps(meta, f0, 300)  # 获得序列
 
         # feature = meta['face_feature']  # (27648, 9)
-        SDF = meta['SDF_Face'][:, np.newaxis]  # 向量变矩阵，最好放数据处理里
-        feature = np.concatenate((meta['dual_vertex'], meta['normalf'], SDF), axis=1)
+        # SDF = meta['SDF_Face'][:, np.newaxis]  # 向量变矩阵，最好放数据处理里
+        # feature = np.concatenate((meta['dual_vertex'], meta['normalf'], SDF), axis=1)
+        feature = meta['dual_vertex']
         label = meta['labels']  # (27648, )
 
         seq = np.delete(seq, -1)  # 去掉最后一个索引
-        feature_seq = feature[seq]  # (300, 7)
+        feature_seq = feature[seq]  # (300, 3)  那两个特征后面再加
         label_seq = label[seq]  # (300,)
 
-        # 添加位置编码，测地距离和二面角
-        # 初始化两个300长度的ndarray存放位置编码
-        GD = np.zeros(300)  # 第一个面片的测地距离为0
-        DA = np.zeros(300)  # 第一个面片的测地距离为0
-        DihedralAngles = meta['DihedralAngles']
-        geodesicDistances = meta['geodesicDistances']
-        for i in range(len(seq)-1):
-            DA[i] = DihedralAngles[seq[i]][seq[i + 1]]
-            GD[i] = geodesicDistances[seq[i]][seq[i + 1]]
-
-        GD = GD[:, np.newaxis]
-        DA = DA[:, np.newaxis]
-        feature_seq = np.concatenate((feature_seq, GD, DA), axis=1)
+        # # 添加位置编码，测地距离和二面角
+        # # 初始化两个300长度的ndarray存放位置编码
+        # GD = np.zeros(300)  # 第一个面片的测地距离为0
+        # DA = np.zeros(300)  # 第一个面片的测地距离为0
+        # DihedralAngles = meta['DihedralAngles']
+        # geodesicDistances = meta['geodesicDistances']
+        # for i in range(len(seq)-1):
+        #     DA[i] = DihedralAngles[seq[i]][seq[i + 1]]
+        #     GD[i] = geodesicDistances[seq[i]][seq[i + 1]]
+        #
+        # GD = GD[:, np.newaxis]
+        # DA = DA[:, np.newaxis]
+        # feature_seq = np.concatenate((feature_seq, GD, DA), axis=1)
 
         return feature_seq, label_seq

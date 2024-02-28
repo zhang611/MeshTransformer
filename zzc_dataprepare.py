@@ -38,12 +38,14 @@ def load_mesh(model_fn):
 
 if __name__ == '__main__':
     # 获得模型的点和面
-    model_path = r'E:\3DModelData\PSB\Teddy\1.off'
+    # model_path = r'E:\3DModelData\PSB\Teddy\1.off'
+    model_path = r'1.off'
     teddy = load_mesh(model_path)     # TriangleMesh数据，13826个点，27648个面
     mesh_data = EasyDict({'vertices': np.asarray(teddy.vertices), 'faces': np.asarray(teddy.triangles)})
 
     # 获得模型的面标签
-    label_path = r'E:\3DModelData\PSB\Teddy\1.seg'
+    # label_path = r'E:\3DModelData\PSB\Teddy\1.seg'
+    label_path = r'1.seg'
     label = np.loadtxt(label_path)
     mesh_data['label'] = label
 
@@ -70,41 +72,21 @@ if __name__ == '__main__':
                 mesh_data['center_edges'][mesh_data['center_face'][i][j]].add(mesh_data['center_face'][i][j-1])  # 前一个加进来
                 mesh_data['center_edges'][mesh_data['center_face'][i][j]].add(mesh_data['center_face'][i][j+1])  # 后一个
 
-    # 保存为npz
-    np.savez('PSBdata/teddy1.npz', **mesh_data)
+
 
     # 加载模型
     # mesh_data = np.load(npz_fn, encoding='latin1', allow_pickle=True)
 
-
-
-
-    # 获得模型的点和面
-    model_path = r'E:\3DModelData\PSB\Teddy\20.off'
-    teddy = load_mesh(model_path)     # TriangleMesh数据，13826个点，27648个面
-    mesh_data = EasyDict({'vertices': np.asarray(teddy.vertices), 'faces': np.asarray(teddy.triangles)})
-
-    # 获得模型的面标签
-    label_path = r'E:\3DModelData\PSB\Teddy\20.seg'
-    labels = np.loadtxt(label_path)
-    mesh_data['labels'] = labels
-
-    # 获得模型的面特征
-    feature_path = r'E:\3DModelData\PSB\Teddy\Features\1.txt'
-    face_feature = np.loadtxt(feature_path)
-    mesh_data['face_feature'] = face_feature   # (27648, 628)
-
     # matlab 算的一些东西
-    SDF_Face = np.loadtxt('matlab/SDF_Face.txt', delimiter='\t')
     dual_vertex = np.loadtxt('matlab/dual_vertex.txt', delimiter='\t')
     dual_vertex = dual_vertex.T  # (19092,3)
-    normalf = np.loadtxt('matlab/normalf.txt', delimiter='\t')
-    normalf = normalf.T
     geodesicDistances = np.loadtxt('matlab/geodesicDistances.txt', delimiter='\t')  # 这两个对称矩阵，不用转置，这个两个多g
     DihedralAngles = np.loadtxt('matlab/DihedralAngles.txt', delimiter='\t')
+    SDF_Face = np.loadtxt('matlab/SDF_Face.txt', delimiter='\t')
+    normalf = np.loadtxt('matlab/normalf.txt', delimiter='\t')
+    normalf = normalf.T
 
-    ring = np.loadtxt('ring.txt', delimiter='\t')
-
+    ring = np.loadtxt('ring.txt', delimiter='\t')  # 这个是不是就是周围的一环，就是备选游走点？
 
     # 放入mesh_data
     mesh_data['SDF_Face'] = SDF_Face
@@ -113,8 +95,6 @@ if __name__ == '__main__':
     mesh_data['geodesicDistances'] = geodesicDistances
     mesh_data['DihedralAngles'] = DihedralAngles
     mesh_data['ring'] = ring
-
-
 
     # 用matlab算，不用这个了
     # mesh的对偶图，得到面的重心和多边形网格
@@ -138,7 +118,7 @@ if __name__ == '__main__':
     np.savez('matlab/data/test.npz', **mesh_data)
     np.savez('matlab/data/PSB/teddy/1.npz', **mesh_data)
 
-    # 还可以把不需要的键去掉
+
 
 
 
