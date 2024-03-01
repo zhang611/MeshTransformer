@@ -7,7 +7,6 @@ import math
 import copy
 
 
-
 class PositionalEncoding(nn.Module):
     "实现位置编码"
     def __init__(self, d_model, dropout, max_len=5000):

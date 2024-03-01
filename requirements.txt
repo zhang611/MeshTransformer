@@ -1,5 +1,14 @@
-# pytorch == 1.2.0
+torch~=1.10.2
+numpy~=1.15.0
 
-tqdm
+
+tqdm~=4.63.0
 
 
+
+h5py~=3.1.0
+matplotlib~=3.0.3
+open3d~=0.15.1
+trimesh~=3.23.5
+easydict~=1.11
+scipy~=1.1.0

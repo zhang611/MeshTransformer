@@ -1,5 +1,6 @@
 
 # 数据集和一些模型
+/datasets_processed/*
 /PSBdata/*
 *.off
 *.npz

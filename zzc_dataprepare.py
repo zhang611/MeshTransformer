@@ -1,30 +1,97 @@
 import glob
 import os
-import sys
+from tqdm import tqdm
 
 import numpy as np
 import open3d
 import trimesh
 from easydict import EasyDict
 
-import torch
-import meshio
-import dualmesh
 """
-mesh模型的所有属性都保存在easydict里面
+mesh模型的所有属性都保存在字典里面,每个模型对应一个npz
 整体都是基于面的，标签只需要面标签
-
-1.预处理，读入模型，并且加载或者计算出所有我需要的东西，一个模型保存一个npz
-我需要的
-顶点:vertices
-面:faces
-面特征:face_feature
-面标签:label
-面的重心:face_center
-重心的面:center_face
-重心的边:center_edges
-
+十个键
+'name'
+'vertices'
+'faces'
+'labels'
+'ring'
+'center' 
+'edges'
+'kdtree'
+'geodesic'
+'dihedral'
 """
+
+
+def prepare_edges_and_kdtree(mesh):
+    """obj文件里只有顶点和面，通过顶点和面得到边"""
+    vertices = mesh['vertices']   # (13826, 3)
+    faces = mesh['faces']         # (27648, 3)
+    mesh['edges'] = [set() for _ in range(vertices.shape[0])]  # 初始化顶点数个空集合
+    for i in range(faces.shape[0]):   # 一个面一个面的看
+        for v in faces[i]:            # 一个面三个点  [41, 40, 33]
+            mesh['edges'][v] |= set(faces[i])  # 把401 40 33 放到 41 索引下，其他同理
+    for i in range(vertices.shape[0]):
+        if i in mesh['edges'][i]:
+            mesh['edges'][i].remove(i)
+        mesh['edges'][i] = list(mesh['edges'][i])
+    max_vertex_degree = np.max([len(e) for e in mesh['edges']])
+    for i in range(vertices.shape[0]):
+        if len(mesh['edges'][i]) < max_vertex_degree:
+            mesh['edges'][i] += [-1] * (max_vertex_degree - len(mesh['edges'][i]))
+    mesh['edges'] = np.array(mesh['edges'], dtype=np.int32)
+
+    mesh['kdtree_query'] = []
+    t_mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+    n_nbrs = min(10, vertices.shape[0] - 2)
+    for n in range(vertices.shape[0]):
+        d, i_nbrs = t_mesh.kdtree.query(vertices[n], n_nbrs)
+        i_nbrs_cleared = [inbr for inbr in i_nbrs if inbr != n and inbr < vertices.shape[0]]
+        if len(i_nbrs_cleared) > n_nbrs - 1:
+            i_nbrs_cleared = i_nbrs_cleared[:n_nbrs - 1]
+        mesh['kdtree_query'].append(np.array(i_nbrs_cleared, dtype=np.int32))
+    mesh['kdtree_query'] = np.array(mesh['kdtree_query'])
+    assert mesh['kdtree_query'].shape[1] == (n_nbrs - 1), 'Number of kdtree_query is wrong: ' + str(
+        mesh['kdtree_query'].shape[1])
+
+
+def get_center(mesh):
+    """获得面的重心坐标"""
+    vertices = mesh['vertices']   # (13826, 3)
+    faces = mesh['faces']         # (27648, 3)
+    position = []
+    for i in range(len(faces)):
+        a, b, c = faces[i]   # 41 40 33
+        center = vertices[0].copy()  # 初始化
+        # TODO 就是a不用a-1得到的和matlab算的一样，再验证一下这个,也可能是matlab有问题
+        center[0] = (vertices[a][0] + vertices[b][0] + vertices[c][0]) / 3  # x 坐标
+        center[1] = (vertices[a][1] + vertices[b][1] + vertices[c][1]) / 3  # y
+        center[2] = (vertices[a][2] + vertices[b][2] + vertices[c][2]) / 3  # z
+        position.append(center)
+    mesh['center'] = np.array(position)
+
+
+def add_fields_and_dump_model(mesh_data, fileds_needed, out_fn, dataset_name, dump_model=True):
+    # fileds_needed 字典需要的键
+    # out_fn 输出路径  'datasets_processed/psb/psb_teddy/1_not_changed_'
+    # dataset_name = 'psb'
+    m = {}   # 存放模型的字典
+    for k, v in mesh_data.items():
+        if k in fileds_needed:
+            m[k] = v               # 先把前面搞好的写进去，顶点,面,标签,ring
+
+    for field in fileds_needed:    # 初始化其他键的值
+        if field not in m.keys():
+            if field == 'edges':              # 通过顶点和面得到边
+                prepare_edges_and_kdtree(m)   # 边的信息有两个，edges和kdtree_query
+            if field == 'center':
+                get_center(m)
+
+    if dump_model:
+        np.savez(out_fn, **m)    # 一个obj变成一个npz，神经网络就用这个
+
+    return m
 
 
 def load_mesh(model_fn):
@@ -36,99 +103,92 @@ def load_mesh(model_fn):
     return mesh
 
 
+def prepare_directory(dataset_name, pathname_expansion=None, p_out=None, n_target_faces=None):
+    # dataset_name = 'psb'
+    # pathname_expansion = 'E:\\3DModelData\\PSB\\Teddy/*.off'
+    # p_out = 'datasets_processed/psb/psb_teddy'
+    fileds_needed = ['vertices', 'faces', 'labels', 'ring', 'name',
+                     'center', 'edges', 'kdtree',
+                     'geodesic', 'dihedral']  # mesh字典的键，10个
+
+    if not os.path.isdir(p_out):
+        os.makedirs(p_out)
+
+    filenames = glob.glob(pathname_expansion)  # 模型 off 路径列表
+    filenames.sort()  # 先排序,字符串排序，1后面是10
+    for file in tqdm(filenames, disable=False):  # diasble 是否输出详细信息
+        out_fn = p_out + '/' + os.path.split(file)[1].split('.')[0]   # npz的输出路径
+        # 'datasets_processed/psb/psb_teddy/1'
+        mesh = load_mesh(file)
+        # mesh_orig = mesh
+
+        # 加载顶点和面
+        mesh_data = EasyDict({'vertices': np.asarray(mesh.vertices), 'faces': np.asarray(mesh.triangles)})
+
+        # 加载 ring
+        path = "matlab/data/PSB/teddy/" + os.path.split(file)[1].split('.')[0] + "_ring.txt"
+        ring = np.loadtxt(path, delimiter='\t')
+        mesh_data['ring'] = ring
+
+        # 加载 测地距离，都是matlab算好的
+        path = "matlab/data/PSB/teddy/" + os.path.split(file)[1].split('.')[0] + "_ring_geo.txt"
+        ring_geo = np.loadtxt(path, delimiter='\t')
+        mesh_data['geodesic'] = ring_geo
+
+        # 加载 二面角
+        path = "matlab/data/PSB/teddy/" + os.path.split(file)[1].split('.')[0] + "_ring_dih.txt"
+        ring_dih = np.loadtxt(path, delimiter='\t')
+        mesh_data['dihedral'] = ring_dih
+
+        # name
+        mesh_data['name'] = [os.path.split(p_out)[1]]
+
+        # 加载标签
+        label_path = 'E:\\3DModelData\PSB\Teddy\\' + os.path.split(file)[1].split('.')[0] + '.seg'
+        labels = np.loadtxt(label_path)
+        mesh_data['labels'] = labels
+
+        str_to_add = '_not_changed_'
+        out_fc_full = out_fn + str_to_add  # 最后的npz输出路径
+        add_fields_and_dump_model(mesh_data, fileds_needed, out_fc_full, dataset_name)
+
+
+def prepare_psb(dataset, subfolder=None):
+    p_out_sub = dataset_name = 'psb'        # psb
+    p_ext = subfolder                       # 'psb_teddy'
+    path_in = r"E:\3DModelData\PSB\Teddy"   # 模型所在位置
+    p_out = 'datasets_processed/' + p_out_sub + '/' + p_ext  # 'datasets_processed/psb/psb_teddy'
+    prepare_directory(dataset_name, pathname_expansion=path_in + '/' + '*.off', p_out=p_out)
+
+
+def prepare_one_dataset(dataset_name):
+    dataset_name = dataset_name.lower()
+    if dataset_name == 'psb':
+        prepare_psb('psb', 'psb_teddy')
+        # prepare_psb('psb', 'vase')
+
+    if dataset_name == 'shrec11':
+        print('To do later')
+
+    if dataset_name == 'cubes':
+        print('To do later')
+
+    # Semantic Segmentations
+    if dataset_name == 'human_seg':
+        print('To do later')
+
+    if dataset_name == 'coseg':
+        print('To do later')
+        # prepare_seg_from_meshcnn('coseg', 'coseg_aliens')
+        # prepare_seg_from_meshcnn('coseg', 'coseg_chairs')
+        # prepare_seg_from_meshcnn('coseg', 'coseg_vases')
+
+
 if __name__ == '__main__':
-    # 获得模型的点和面
-    # model_path = r'E:\3DModelData\PSB\Teddy\1.off'
-    model_path = r'1.off'
-    teddy = load_mesh(model_path)     # TriangleMesh数据，13826个点，27648个面
-    mesh_data = EasyDict({'vertices': np.asarray(teddy.vertices), 'faces': np.asarray(teddy.triangles)})
+    np.random.seed(1)
 
-    # 获得模型的面标签
-    # label_path = r'E:\3DModelData\PSB\Teddy\1.seg'
-    label_path = r'1.seg'
-    label = np.loadtxt(label_path)
-    mesh_data['label'] = label
-
-    # 获得模型的面特征
-    feature_path = r'E:\3DModelData\PSB\Teddy\Features\1.txt'
-    face_feature = np.loadtxt(feature_path)
-    mesh_data['face_feature'] = face_feature   # (27648, 628)
-
-    # mesh的对偶图，得到面的重心和多边形网格
-    model_path = r'E:\3DModelData\PSB\Teddy\1.off'
-    mesh = meshio.read(model_path)
-    dual_mesh = dualmesh.get_dual(mesh, order=True)
-    mesh_data['face_center'] = dual_mesh.points
-    mesh_data['center_face'] = dual_mesh.cells_dict['polygon']    # 多边形，不是三边型
-
-    # 重心的边
-    mesh_data['center_edges'] = [set() for _ in range(mesh_data['face_center'].shape[0])]  # 27648个
-    for i in range(mesh_data['center_face'].shape[0]):  # 13826次,遍历所有对偶面
-        for j in range(len(mesh_data['center_face'][i])):       # mesh_data['center_face'][0] = [1,0,5,2,4,3]
-            if j == (len(mesh_data['center_face'][i]) - 1):
-                mesh_data['center_edges'][mesh_data['center_face'][i][j]].add(mesh_data['center_face'][i][j-1])  # 前一个加进来
-                mesh_data['center_edges'][mesh_data['center_face'][i][j]].add(mesh_data['center_face'][i][0])  # 后一个
-            else:
-                mesh_data['center_edges'][mesh_data['center_face'][i][j]].add(mesh_data['center_face'][i][j-1])  # 前一个加进来
-                mesh_data['center_edges'][mesh_data['center_face'][i][j]].add(mesh_data['center_face'][i][j+1])  # 后一个
-
-
-
-    # 加载模型
-    # mesh_data = np.load(npz_fn, encoding='latin1', allow_pickle=True)
-
-    # matlab 算的一些东西
-    dual_vertex = np.loadtxt('matlab/dual_vertex.txt', delimiter='\t')
-    dual_vertex = dual_vertex.T  # (19092,3)
-    geodesicDistances = np.loadtxt('matlab/geodesicDistances.txt', delimiter='\t')  # 这两个对称矩阵，不用转置，这个两个多g
-    DihedralAngles = np.loadtxt('matlab/DihedralAngles.txt', delimiter='\t')
-    SDF_Face = np.loadtxt('matlab/SDF_Face.txt', delimiter='\t')
-    normalf = np.loadtxt('matlab/normalf.txt', delimiter='\t')
-    normalf = normalf.T
-
-    ring = np.loadtxt('ring.txt', delimiter='\t')  # 这个是不是就是周围的一环，就是备选游走点？
-
-    # 放入mesh_data
-    mesh_data['SDF_Face'] = SDF_Face
-    mesh_data['dual_vertex'] = dual_vertex
-    mesh_data['normalf'] = normalf
-    mesh_data['geodesicDistances'] = geodesicDistances
-    mesh_data['DihedralAngles'] = DihedralAngles
-    mesh_data['ring'] = ring
-
-    # 用matlab算，不用这个了
-    # mesh的对偶图，得到面的重心和多边形网格
-    mesh = meshio.read(model_path)
-    dual_mesh = dualmesh.get_dual(mesh, order=True)
-    mesh_data['face_center'] = dual_mesh.points
-    mesh_data['center_face'] = dual_mesh.cells_dict['polygon']    # 多边形，不是三边型
-
-    # 重心的边
-    mesh_data['center_edges'] = [set() for _ in range(mesh_data['face_center'].shape[0])]  # 27648个
-    for i in range(mesh_data['center_face'].shape[0]):  # 13826次,遍历所有对偶面
-        for j in range(len(mesh_data['center_face'][i])):       # mesh_data['center_face'][0] = [1,0,5,2,4,3]
-            if j == (len(mesh_data['center_face'][i]) - 1):
-                mesh_data['center_edges'][mesh_data['center_face'][i][j]].add(mesh_data['center_face'][i][j-1])  # 前一个加进来
-                mesh_data['center_edges'][mesh_data['center_face'][i][j]].add(mesh_data['center_face'][i][0])  # 后一个
-            else:
-                mesh_data['center_edges'][mesh_data['center_face'][i][j]].add(mesh_data['center_face'][i][j-1])  # 前一个加进来
-                mesh_data['center_edges'][mesh_data['center_face'][i][j]].add(mesh_data['center_face'][i][j+1])  # 后一个
-
-    # 保存为npz
-    np.savez('matlab/data/test.npz', **mesh_data)
-    np.savez('matlab/data/PSB/teddy/1.npz', **mesh_data)
-
-
-
-
-
-
-
-
-
-
-
-
-
+    # dataset_name = sys.argv[1]  # python dataset_prepare.py 'PSB'
+    dataset_name = 'psb'
+    prepare_one_dataset(dataset_name)
 
 
