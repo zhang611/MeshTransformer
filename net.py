@@ -1,10 +1,7 @@
-import numpy as np
 import torch
 import torch.nn as nn
-import math
-
 from torch.utils.data import DataLoader
-import zzc_dataset
+import my_dataset
 
 
 class MLP(nn.Module):
@@ -108,13 +105,14 @@ class Encoder(nn.Module):
                  device,
                  forward_expansion,   # 4
                  dropout,           # 0
-                 max_length
+                 max_length,
+                 feature_num
                  ):
         super(Encoder, self).__init__()
         self.embed_size = embed_size
         self.device = device
         # self.word_embedding = nn.Embedding(src_vocab_size, embed_size)   # (10, 256)  词汇表大小，embedding大小
-        self.word_embedding = nn.Linear(3, embed_size)
+        self.word_embedding = nn.Linear(feature_num, embed_size)
         self.position_embedding = nn.Embedding(max_length, embed_size)   # (100, 256)  位置编码
 
         self.layers = nn.ModuleList(
@@ -139,7 +137,7 @@ class Encoder(nn.Module):
         # pe[:, 0::2] = torch.sin(position * div_term)
         # pe[:, 1::2] = torch.cos(position * div_term)
         # pe = pe.expand(N, seq_lengh, 256*3).to(self.device)
-        out = self.dropout(self.word_embedding(x).reshape(4, 300, -1) + self.position_embedding(positions))  # 位置编码加上去
+        out = self.dropout(self.word_embedding(x).reshape(N, 300, -1) + self.position_embedding(positions))  # 位置编码加上去
         # out = self.dropout(self.word_embedding(x).reshape(4, 300, -1) + pe)  # 位置编码加上去
 
         for layer in self.layers:
@@ -199,6 +197,7 @@ class Decoder(nn.Module):
 
 class Transformer(nn.Module):
     def __init__(self,
+                 args,
                  src_vocab_size,   # 10 源词汇表大小
                  trg_vocab_size,   # 10 目标词汇表大小
                  src_pad_idx,      # 0
@@ -209,9 +208,10 @@ class Transformer(nn.Module):
                  heads=8,
                  dropout=0,  # 神经元失活，正则化，防过拟合
                  device="cuda",
-                 max_length=300    # 100 一个句子最长也就这么长了，用这个设置位置编码
+                 max_length=300
                  ):
         super(Transformer, self).__init__()
+        self.args = args
         self.encoder = Encoder(
             src_vocab_size,
             embed_size,
@@ -220,7 +220,8 @@ class Transformer(nn.Module):
             device,
             forward_expansion,
             dropout,
-            max_length
+            max_length=args.seq_len,
+            feature_num=args.feature_num
         )
 
         self.decoder = Decoder(
@@ -257,27 +258,27 @@ class Transformer(nn.Module):
         return out
 
 
-if __name__ == "__main__":
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(device)
-
-    path = 'datasets_processed/psb/psb_teddy'
-    dataset = zzc_dataset.PSBDataset(path)
-    dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
-
-    src_pad_idx = 0   # 不定长序列中用0填充
-    trg_pad_idx = 0
-    src_vocab_size = 1024        # 10  输入序列的词汇表大小
-    trg_vocab_size = 5           # 10  就五个类别，五个词够了
-    model = Transformer(src_vocab_size, trg_vocab_size, src_pad_idx, trg_pad_idx, device=device)
-    for data, label in dataloader:
-        data = torch.tensor(data, dtype=torch.float32)
-        label = label.to(dtype=torch.int64)
-        data, label = data.to(device), label.to(device)
-
-        out = model(data, label)  # (4, 300, 5)  最后一个位置通常作为预测的目标
-        print(out.shape)   # (4, 300, 5)
-        # print(out)
+# if __name__ == "__main__":
+#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#     print(device)
+#
+#     path = 'datasets_processed/psb/psb_teddy'
+#     dataset = my_dataset.PSBDataset(path)
+#     dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
+#
+#     src_pad_idx = 0   # 不定长序列中用0填充
+#     trg_pad_idx = 0
+#     src_vocab_size = 1024        # 10  输入序列的词汇表大小
+#     trg_vocab_size = 5           # 10  就五个类别，五个词够了
+#     model = Transformer(src_vocab_size, trg_vocab_size, src_pad_idx, trg_pad_idx, device=device)
+#     for data, label in dataloader:
+#         data = torch.tensor(data, dtype=torch.float32)
+#         label = label.to(dtype=torch.int64)
+#         data, label = data.to(device), label.to(device)
+#
+#         out = model(data, label)  # (4, 300, 5)
+#         print(out.shape)   # (4, 300, 5)
+#         # print(out)
 
 
 

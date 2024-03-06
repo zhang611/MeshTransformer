@@ -2,16 +2,15 @@ import argparse
 import os
 import time
 
-import numpy as np
-from torch.utils.data import DataLoader
-from tqdm import tqdm
 import torch
-from torch import Tensor
 from torch import nn, optim
+from torch.utils.data import DataLoader
 
-import zzc_dataset
-import zzc_net
-from util import IOStream
+import my_dataset
+import net
+from utils import IOStream
+
+
 
 
 def _init_():
@@ -21,30 +20,36 @@ def _init_():
         os.makedirs('checkpoints/' + args.exp_name)
     if not os.path.exists('checkpoints/' + args.exp_name + '/' + 'models'):
         os.makedirs('checkpoints/' + args.exp_name + '/' + 'models')
-    os.system('cp zzc_dataprepare.py checkpoints' + '/' + args.exp_name + '/' + 'zzc_dataprepare.py.backup')  # 备份文件
+    for file in os.listdir():
+        if file.endswith('py'):
+            os.system(f'cp {file} checkpoints' + '/' + args.exp_name + '/' + f'{file}.backup')
+
+    # os.system('cp dataprepare.py checkpoints' + '/' + args.exp_name + '/' + 'dataprepare.py.backup')  # 备份文件
+    # os.system('cp net.py checkpoints' + '/' + args.exp_name + '/' + 'net.py.backup')  # 备份文件
+    # os.system('cp train.py checkpoints' + '/' + args.exp_name + '/' + 'train.py.backup')  # 备份文件
+    # os.system('cp utils.py checkpoints' + '/' + args.exp_name + '/' + 'utils.py.backup')  # 备份文件
 
 
 def train(args, io):
     # 加载数据集
-    # dataset = zzc_dataset.PSBDataset('matlab/data/PSB/teddy')
-    # path = 'datasets_processed/psb/psb_teddy'
-    path1 = args.data_path
-    dataset = zzc_dataset.PSBDataset(path1)
+    path_train = args.data_path
+    dataset = my_dataset.PSBDataset(args, path_train)
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
 
-    path2 = args.data_path + '/' + 'test'
-    test_dataset = zzc_dataset.PSBDataset(path2)
+    path_test = args.data_path + '/' + 'test'
+    test_dataset = my_dataset.PSBDataset(args, path_test)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True)  # 都是4
 
     device = torch.device("cuda" if args.use_cuda else "cpu")
 
     # 创建模型
     # model = zzc_net.MLP(args, out_c=args.out_c).to(device)
-    src_pad_idx = 0   # 不定长序列中用0填充
-    trg_pad_idx = 0
-    src_vocab_size = 1024        # 10  输入序列的词汇表大小
-    trg_vocab_size = 5           # 10  就五个类别，五个词够了
-    model = zzc_net.Transformer(src_vocab_size, trg_vocab_size, src_pad_idx, trg_pad_idx, device=device)
+
+    src_vocab_size = args.src_vocab_size
+    trg_vocab_size = args.trg_vocab_size
+    src_pad_idx = args.src_pad_idx
+    trg_pad_idx = args.trg_pad_idx
+    model = net.Transformer(args, src_vocab_size, trg_vocab_size, src_pad_idx, trg_pad_idx, device=device)
 
     if args.pre_train:
         model.load_state_dict(torch.load(args.model_path))
@@ -68,32 +73,30 @@ def train(args, io):
         total_time = 0.0
         correct = 0.0       # 记录一轮的累计准确率
         num = 0             # 序列的面片数量
-        for data, label in dataloader:     # 一个batch的面片data(4, 300, 3) label(4, 300)
-
-            # 如果要用MLP输入就要是(1200, 628)，用RNN再考虑顺序
-            # data = data.view(-1, 3)
-            # data = torch.tensor(data, dtype=torch.float32)
-            data = data.to(torch.float32)
-            # label = label.view(-1)
-            label = label.to(dtype=torch.int64)
+        for data, label in dataloader:     # 一个batch的面片data(4, 300, 5) label(4, 300)
+            data = data.to(torch.float32)  # (4,1200,5)   # (4, 1200, 5) 4代表4个模型，1200=4*300，每个模型取四条长300的序列，5是特征
+            label = label.to(dtype=torch.int64)   # (4, 1200)
             data, label = data.to(device), label.to(device)
 
+            # 进入网络之前要把(4, 1200, 5)->(16, 300, 5)网络是根据序列来的
+            data = data.view((-1, 300, 5))
+            label = label.view(-1, 300)
             opt.zero_grad()
             start_time = time.time()
-            pred = model(data, label)   # (4, 300, 5)
+            pred = model(data, label)   # (16, 300, 5)
             # loss = criterion(pred, label)
-            pred = pred.view(-1, 5)
-            label = label.view(-1)
+            pred = pred.view(-1, 5)   # (1200, 5)  方便后面算loss，算准确率
+            label = label.view(-1)    # (1200, 5)
             loss = criterion(pred, label)
             loss.backward()
-            opt.step()
-            end_time = time.time()
+            opt.step()    # 更新优化器
+            end_time = time.time()   # 一次iter花的时间
             total_time += (end_time - start_time)
 
-            preds = pred.max(dim=1)[1]   # (1204,)  预测结果变成lable形式
-            count += 1 * args.batch_size  # 看的模型数，16，也就是在16个模型上游走了16条序列
+            preds = pred.max(dim=1)[1]   # (1204,)  预测结果变成one_lable形式
+            count += 1 * args.batch_size  # 看的模型数，4，也就是在4个模型上游走了4条序列
             train_loss += loss.item() * args.batch_size   # 一轮累计的loss
-            num += data.shape[0] * data.shape[1]           # 1200
+            num += data.shape[0] * data.shape[1]          # 看的面片数量，4*4*300=4800
             correct += (preds == label).sum().item()   # 预测准确的面片数,算的是这一轮的累计准确率
 
         test_acc = correct * 1.0 / num    # 准确面片数、序列面片数（4*300），没有加权面积
@@ -115,12 +118,12 @@ def train(args, io):
 
         with torch.no_grad():
             for data, label in test_loader:
-                # data = data.view(-1, 3)
-                # data = torch.tensor(data, dtype=torch.float32)
                 data = data.to(torch.float32)
-                # label = label.view(-1)
                 label = label.to(dtype=torch.int64)
                 data, label = data.to(device), label.to(device)
+
+                data = data.view((-1, 300, 5))
+                label = label.view(-1, 300)
 
                 opt.zero_grad()
                 pred = model(data, label)
@@ -150,70 +153,45 @@ def train(args, io):
     print('Training Finished!')
 
 
-def test(args, io):
-    """
-    测试的时候需要算出整个模型的准确率，大数准则还是怎么办
-    是否可以，每个面片都当一次起始点，全部游走一遍，这样就不会漏了，所有的结果再平均一下
-    """
-    path = args.data_path + '/' + 'test'
-    test_dataset = zzc_dataset.PSBDataset(path)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True)
-
-    device = torch.device("cuda" if args.cuda else "cpu")
-
-    # model = zzc_net.MLP(args, out_c=args.out_c).to(device)
-    src_pad_idx = 0   # 不定长序列中用0填充
-    trg_pad_idx = 0
-    src_vocab_size = 1024        # 10  输入序列的词汇表大小
-    trg_vocab_size = 5           # 10  就五个类别，五个词够了
-    model = zzc_net.Transformer(src_vocab_size, trg_vocab_size, src_pad_idx, trg_pad_idx, device=device)
-    model.load_state_dict(torch.load(args.model_path))
-    model = model.eval()
-    test_true = []
-    test_pred = []
-    for data, label in test_loader:
-
-        data = data.view(-1, 3)
-        data = torch.tensor(data, dtype=torch.float32)
-        label = label.view(-1)
-        label = label.to(dtype=torch.int64)
-        data, label = data.to(device), label.to(device)
-
-        pred = model(data)
-        preds = pred.max(dim=1)[1]
-        pass
-
-
-
-
-
-
 if __name__ == '__main__':
-    # 超参数
-    parser = argparse.ArgumentParser(description='Mesh Segmentation')  # 使用命令行参数
+    ############################################################
+    # 调参
+    ############################################################
+    parser = argparse.ArgumentParser(description='Mesh Transformer')  # 使用命令行参数
     parser.add_argument('--use_cuda', type=bool, default=False)
-    # 实验目录相关
+    parser.add_argument('--device', type=str, default='cpu')
+    # 数据集相关
     parser.add_argument('--data_path', type=str, default='datasets_processed/psb/psb_teddy')
-    parser.add_argument('--exp_name', type=str, default='psb_teddy')
-    parser.add_argument('--save_path', type=str, default='result/')  # 计划放验证模式输出的整个模型标签
+    parser.add_argument('--exp_name', type=str, default='psb_teddy1')
     parser.add_argument('--model_path', type=str, default='checkpoints/Teddy/models/model.pth',
                         help='Pretrained model path')  # 验证模式使用
     parser.add_argument('--off_path', type=str, default='E:/3DModelData/PSB/Teddy/', help='off path')
 
+
+    parser.add_argument('--full_test', type=bool, default=False)  # 是否把面片索引作为特征加上去
+
+
     # 神经网络相关
+    parser.add_argument('--feature_num', type=int, default=5, help='Number of features')  # 消融实验
     parser.add_argument('--out_c', type=int, default=5, help='classes of this shape')
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--epochs', type=int, default=2000)
-    parser.add_argument('--eval', type=bool, default=False)  # 是否是验证模式，一般就是训练
-    parser.add_argument('--batch_size', type=int, default=4)
+    parser.add_argument('--batch_size', type=int, default=4)   # 一次看四个模型，四条序列
     parser.add_argument('--use_sgd', type=bool, default=False, help='Use SGD')
     parser.add_argument('--momentum', type=float, default=0.9, help='SGD momentum ')
     parser.add_argument('--dropout', type=float, default=0.1, help='dropout rate')
     parser.add_argument('--pre_train', type=bool, default=False,
                         help='use Pretrained model')  # 继续训练
 
+    # transformer 参数
+    parser.add_argument('--src_pad_idx', type=int, default=0, help='原序列不足用0填充')
+    parser.add_argument('--trg_pad_idx', type=int, default=0, help='标签序列不足用0填充')
+    parser.add_argument('--src_vocab_size', type=int, default=1024, help='输入序列的词汇表大小')
+    parser.add_argument('--trg_vocab_size', type=int, default=5, help='用类别数')
+
     # 序列相关
-    parser.add_argument('--seq_len', type=int, default=300)
+    parser.add_argument('--seq_len', type=int, default=300)  # 做消融实验，不一定是300，我的模型挺大的
+    parser.add_argument('--n_walks_per_model', type=int, default=4)  # 做消融实验，不一定是300，我的模型挺大的
 
     # parser.add_argument('--index', type=int, default=0, help='which class to train')
     # parser.add_argument('--attention_layers', type=int, default=0)
@@ -221,10 +199,13 @@ if __name__ == '__main__':
     # parser.add_argument('--offset', type=bool, default=True)
     args = parser.parse_args()
 
+    ############################################################
+    # 调参结束
+    ############################################################
     _init_()
     res = {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []}
 
-    io = IOStream('checkpoints/' + args.exp_name + '/run.log')
+    io = IOStream('checkpoints/' + args.exp_name + '/0_run.log')
     io.cprint(str(args))
 
     args.cuda = args.use_cuda and torch.cuda.is_available()
@@ -234,12 +215,4 @@ if __name__ == '__main__':
     else:
         io.cprint('Using CPU')
 
-    if not args.eval:
-        train(args, io)
-        # plot_history(res)
-    else:
-        test(args, io)
-
-
-
-
+    train(args, io)
