@@ -29,25 +29,20 @@ def calc_accuracy_test(args):
     不行再补一下，再不行就要考虑下采样了
     是否可以每个面片都当一次起始点，全部游走一遍，这样就不会漏了，所有的结果再平均一下,不可以，因为前一半的预测要丢掉
     """
-    path = args.data_path + '/' + 'test'
+    path = args.data_path + '/' + 'full_test'
     test_dataset = my_dataset.PSBDataset(args, path)
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=True)
 
     device = "cpu"
-    src_pad_idx = 0  # 不定长序列中用0填充
-    trg_pad_idx = 0
-    src_vocab_size = 1024  # 10  输入序列的词汇表大小
-    trg_vocab_size = 5  # 10  就五个类别，五个词够了
-    model = net.Transformer(args, src_vocab_size, trg_vocab_size, src_pad_idx, trg_pad_idx, device=device)
-    model_path = args.model_path
+    model = net.Transformer(args).to(args.device)
 
-    model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load(args.model_path))
     model = model.eval()
 
     skip = int(args.seq_len * 0.5)
     models = {}
 
-    n_iters = 100
+    n_iters = 10
     for _ in tqdm(range(n_iters)):
         for name, data, label in test_loader:
             data = data.to(torch.float32)  # (1, 32*300, 6)
@@ -59,6 +54,7 @@ def calc_accuracy_test(args):
             all_seq = data[:, :, -1]  # (32, 300)最后一个特征是面片索引
             data = data[:, :, :-1]    # (32, 300, 5)
 
+            data, label = data.to(args.device), label.to(args.device)
             pred = model(data, label)
             pred = pred[:, skip:]  # (32, 150, 5) 一个模型上的16条序列
 
@@ -73,9 +69,10 @@ def calc_accuracy_test(args):
 
             # 所有的面片索引
 
-            all_seq = all_seq[:, skip:].reshape(-1).to(torch.int32)   # 4800=32*150
+            all_seq = all_seq[:, skip:].reshape(-1).to(torch.int32)   # 4800=32*150  一次看32条序列
 
             all_seq = all_seq.numpy()
+            pred = pred.cpu()
             pred = pred.detach().numpy()
             for w_step in range(all_seq.shape[0]):   # 4800 都过一遍，这个很慢
                 models[name]['pred'][all_seq[w_step]] += pred[w_step]              # 把对应预测的结果加上去
@@ -99,36 +96,74 @@ def calc_accuracy_test(args):
         full_test_acc = correct * 1.0 / num
         acc = correct * 1.0 / (num-num_skip_faces)
 
+        print("===============================================================================")
         print(f"{name}的准确率为{full_test_acc}")
         print(f"{name}的去除没走到面的准确率为{acc}")
         print(f"一共有{num}个面片，有{num_skip_faces}个面没有游走到，占比{(num_skip_faces/num):.4f}")
         print("===============================================================================")
 
+        # 看一下有多少面没有游走到
+        # val_label = np.zeros(num)  # 初始化所有面的标签，都为0
+        # for idx, val in enumerate(pred_count):
+        #     if val > 0.5:
+        #         val_label[idx] = 1
+        # np.savetxt('result/test/10times_20.seg', val_label, fmt='%d', delimiter='\t')
+
+        # 保存结果
+        if not os.path.exists(args.save_path):
+            os.mkdir(args.save_path)
+        save_dir = args.save_path + '/' + str('ant') + '/'
+        if not os.path.exists(save_dir):
+            os.mkdir(save_dir)
+        f = open(save_dir + str(20) + '.seg', 'w')
+        pres = fin_pred.tolist()
+        str_out = [str(x_i) for x_i in pres]
+        strs_out = '\n'.join(str_out)
+        f.write(strs_out)
+        f.close()
+
+        # 图割使用
+        f = open(save_dir + str(20) + '.prob', 'w')
+        # prob = pred.cpu().numpy()
+        # prob = pred.squeeze(0)
+        # prob = pred.tolist()
+        for i in pred:   # 一行一行的写
+            for j in i:
+                f.write(str(j))
+                f.write(' ')
+            f.write('\n')
+        f.close()
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Mesh Transformer')  # 使用命令行参数
     parser.add_argument('--use_cuda', type=bool, default=False)
+    parser.add_argument('--device', type=str, default="cuda")
     # 数据集相关
 
-    parser.add_argument('--model_path', type=str, default='checkpoints/psb_teddy1/models/model.pth')
-    parser.add_argument('--data_path', type=str, default='datasets_processed/psb/psb_teddy')
+    parser.add_argument('--model_path', type=str, default='checkpoints/psb_ant/models/model.pth')
+    parser.add_argument('--data_path', type=str, default='datasets_processed/psb/psb_ant')
     parser.add_argument('--n_walks_per_model', type=int, default=32)  #
 
     parser.add_argument('--full_test', type=bool, default=True)  # 是否把面片索引作为特征加上去
 
-    parser.add_argument('--exp_name', type=str, default='psb_teddy')
-    parser.add_argument('--save_path', type=str, default='result/')  # 计划放验证模式输出的整个模型标签
-    parser.add_argument('--off_path', type=str, default='E:/3DModelData/PSB/Teddy/', help='off path')
+    parser.add_argument('--exp_name', type=str, default='psb_ant')
+    parser.add_argument('--save_path', type=str, default='result')  # 计划放验证模式输出的整个模型标签
+    parser.add_argument('--off_path', type=str, default='E:/3DModelData/PSB/Ant/', help='off path')
 
     # 神经网络相关
-    parser.add_argument('--feature_num', type=int, default=5, help='Number of features')  # 消融实验
+    parser.add_argument('--feature_num', type=int, default=5, help='Number of features')
     parser.add_argument('--out_c', type=int, default=5, help='classes of this shape')
-    parser.add_argument('--lr', type=float, default=0.001)
-    parser.add_argument('--epochs', type=int, default=2000)
     parser.add_argument('--batch_size', type=int, default=4)
-    parser.add_argument('--use_sgd', type=bool, default=False, help='Use SGD')
-    parser.add_argument('--momentum', type=float, default=0.9, help='SGD momentum ')
-    parser.add_argument('--dropout', type=float, default=0.1, help='dropout rate')
+
+
+    parser.add_argument('--embed_size', type=int, default=512)
+    parser.add_argument('--num_layers', type=int, default=6)
+    parser.add_argument('--forward_expansion', type=int, default=4)
+    parser.add_argument('--heads', type=int, default=8)
+    parser.add_argument('--dropout', type=int, default=0)
+    parser.add_argument('--max_length', type=int, default=300)
+
     parser.add_argument('--pre_train', type=bool, default=False,
                         help='use Pretrained model')  # 继续训练
 
@@ -141,10 +176,6 @@ if __name__ == '__main__':
     # 序列相关
     parser.add_argument('--seq_len', type=int, default=300)  # 做消融实验，不一定是300，我的模型挺大的
 
-    # parser.add_argument('--index', type=int, default=0, help='which class to train')
-    # parser.add_argument('--attention_layers', type=int, default=0)
-    # parser.add_argument('--input_layer', type=tuple, default=(628, 1024, 256, 16))
-    # parser.add_argument('--offset', type=bool, default=True)
     args = parser.parse_args()
 
     calc_accuracy_test(args)

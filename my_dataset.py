@@ -33,8 +33,8 @@ def get_seq_random_walk_random_global_jumps(mesh_extra, f0, seq_len):
 
     n_vertices = mesh_extra['center'].shape[0]  # 重心的数量 27648
     seq = np.zeros((seq_len + 1,), dtype=np.int32)  # 初始化序列(301,)
-    jumps = np.zeros((seq_len + 1,), dtype=np.bool)  # (301,)全false
-    visited = np.zeros((n_vertices + 1,), dtype=np.bool)  # (27648,)全false,用过的点是true
+    jumps = np.zeros((seq_len + 1,), dtype=np.bool_)       # (301,)全false,不同版本numpy的bool不同
+    visited = np.zeros((n_vertices + 1,), dtype=np.bool_)  # (27648,)全false,用过的点是true
     visited[-1] = True  # 用过的点变成true
     visited[f0] = True
     seq[0] = f0
@@ -42,7 +42,7 @@ def get_seq_random_walk_random_global_jumps(mesh_extra, f0, seq_len):
     backward_steps = 1  # 后退步数为1
     jump_prob = 1 / 100  # jump概率0.01
     for i in range(1, seq_len + 1):
-        this_nbrs = nbrs[seq[i - 1]]  # (15,)  前一个顶点所联通的其他顶点的索引，也就是这一步随机游走的选择,[1,5,9]
+        this_nbrs = nbrs[seq[i - 1]]  # [7518 7545 7547]  前一个顶点所联通的其他顶点的索引，也就是这一步随机游走的选择,[1,5,9]  感觉是因为1的问题
         nodes_to_consider = [n for n in this_nbrs if
                              not visited[n]]  # 备选顶点 [5, 6, 11, 14, 17] 这句代码，首先-1会被去掉因为visited[-1] = True，其次用过的点也是true
         jump_now = np.random.binomial(1, jump_prob)  # 从二项分布中抽取随机样本，抛硬币，抛一次，1的概率0.01，绝大数情况都不跳
@@ -89,9 +89,9 @@ class PSBDataset(Dataset):
         # 一个模型抽几条序列，默认就是1，训练我要改成4，测试我要改成16
         for seq_i in range(self.args.n_walks_per_model):    # 每个模型要获得四条序列
             f0 = random.randint(0, meta["faces"].shape[0])  # 随机选择初始点f0
-            seq, jump = get_seq_random_walk_random_global_jumps(meta, f0, 300)   # 一条序列
+            seq, jump = get_seq_random_walk_random_global_jumps(meta, f0, 300)  # (301,) 一条序列 面片索引
 
-            ring = meta['ring']
+            ring = meta['ring']  # (-1, 3)
             ring = ring.astype(np.int32)
             ring_geo = meta['geodesic']
             ring_dih = meta['dihedral']

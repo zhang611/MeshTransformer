@@ -2,9 +2,7 @@
 torch
 numpy
 tqdm~=4.63.0
-h5py~=3.1.0
-matplotlib~=3.0.3
-open3d~=0.15.1
+matplotlib
+open3d
 trimesh
 easydict
-scipy

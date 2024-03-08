@@ -1,7 +1,6 @@
 
 # 数据集和一些模型
 /datasets_processed/*
-/PSBdata/*
 *.off
 *.npz
 
@@ -12,13 +11,10 @@
 /temp/*
 
 
-
-
-
 # matlab非代码文件
 *.txt
 !requirements.txt
-/matlab/look/*
+/matlab/data/*
 
 
 
@@ -28,20 +24,4 @@ __pycache__/*
 __pypackages__/*
 
 .idea
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

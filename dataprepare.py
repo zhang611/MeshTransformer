@@ -7,22 +7,6 @@ import open3d
 import trimesh
 from easydict import EasyDict
 
-"""
-mesh模型的所有属性都保存在字典里面,每个模型对应一个npz
-整体都是基于面的，标签只需要面标签
-十个键
-'name'
-'vertices'
-'faces'
-'labels'
-'ring'
-'center' 
-'edges'
-'kdtree'
-'geodesic'
-'dihedral'
-"""
-
 
 def prepare_edges_and_kdtree(mesh):
     """obj文件里只有顶点和面，通过顶点和面得到边"""
@@ -103,7 +87,7 @@ def load_mesh(model_fn):
     return mesh
 
 
-def prepare_directory(dataset_name, pathname_expansion=None, p_out=None, n_target_faces=None):
+def prepare_directory(dataset_name, subfolder, pathname_expansion=None, p_out=None):
     # dataset_name = 'psb'
     # pathname_expansion = 'E:\\3DModelData\\PSB\\Teddy/*.off'
     # p_out = 'datasets_processed/psb/psb_teddy'
@@ -126,17 +110,19 @@ def prepare_directory(dataset_name, pathname_expansion=None, p_out=None, n_targe
         mesh_data = EasyDict({'vertices': np.asarray(mesh.vertices), 'faces': np.asarray(mesh.triangles)})
 
         # 加载 ring
-        path = "matlab/data/PSB/teddy/" + os.path.split(file)[1].split('.')[0] + "_ring.txt"
+        # path = "matlab/data/PSB/teddy/" + os.path.split(file)[1].split('.')[0] + "_ring.txt"
+        path = "matlab/data/PSB/" + subfolder.split('_')[1] + "/" + os.path.split(file)[1].split('.')[0] + "_ring.txt"
         ring = np.loadtxt(path, delimiter='\t')
+        ring = ring - 1   # 否则后面超出索引，获得的二面角和测地距离也不对
         mesh_data['ring'] = ring
 
         # 加载 测地距离，都是matlab算好的
-        path = "matlab/data/PSB/teddy/" + os.path.split(file)[1].split('.')[0] + "_ring_geo.txt"
+        path = "matlab/data/PSB/" + subfolder.split('_')[1] + "/" + os.path.split(file)[1].split('.')[0] + "_ring_geo.txt"
         ring_geo = np.loadtxt(path, delimiter='\t')
         mesh_data['geodesic'] = ring_geo
 
         # 加载 二面角
-        path = "matlab/data/PSB/teddy/" + os.path.split(file)[1].split('.')[0] + "_ring_dih.txt"
+        path = "matlab/data/PSB/" + subfolder.split('_')[1] + "/" + os.path.split(file)[1].split('.')[0] + "_ring_dih.txt"
         ring_dih = np.loadtxt(path, delimiter='\t')
         mesh_data['dihedral'] = ring_dih
 
@@ -144,27 +130,30 @@ def prepare_directory(dataset_name, pathname_expansion=None, p_out=None, n_targe
         mesh_data['name'] = [os.path.split(p_out)[1]]
 
         # 加载标签
-        label_path = 'E:\\3DModelData\PSB\Teddy\\' + os.path.split(file)[1].split('.')[0] + '.seg'
+        # 直接从文件连提取的，没经过matlab，不需要+1就是0到4
+        label_path = 'E:\\3DModelData/PSB/Airplane/' + os.path.split(file)[1].split('.')[0] + '.seg'   # TODO 修改
         labels = np.loadtxt(label_path)
         mesh_data['labels'] = labels
 
-        str_to_add = '_not_changed_'
+        str_to_add = '_not_changed'
         out_fc_full = out_fn + str_to_add  # 最后的npz输出路径
         add_fields_and_dump_model(mesh_data, fileds_needed, out_fc_full, dataset_name)
 
 
-def prepare_psb(dataset, subfolder=None):
-    p_out_sub = dataset_name = 'psb'        # psb
-    p_ext = subfolder                       # 'psb_teddy'
-    path_in = r"E:\3DModelData\PSB\Teddy"   # 模型所在位置
-    p_out = 'datasets_processed/' + p_out_sub + '/' + p_ext  # 'datasets_processed/psb/psb_teddy'
-    prepare_directory(dataset_name, pathname_expansion=path_in + '/' + '*.off', p_out=p_out)
+def prepare_psb(dataset, subfolder):
+    # path_in = r"E:\3DModelData\PSB\Teddy"   # 模型所在位置
+    sub = subfolder[4:].capitalize()
+    path_in = "E:\\3DModelData/PSB/" + sub    # 模型所在位置
+    p_out = 'datasets_processed/' + dataset + '/' + subfolder  # 'datasets_processed/psb/psb_teddy'
+    prepare_directory(dataset, subfolder, pathname_expansion=path_in + '/' + '*.off', p_out=p_out)
 
 
 def prepare_one_dataset(dataset_name):
     dataset_name = dataset_name.lower()
     if dataset_name == 'psb':
-        prepare_psb('psb', 'psb_teddy')
+        # prepare_psb(dataset_name, 'psb_teddy')
+        # prepare_psb(dataset_name, 'psb_ant')
+        prepare_psb(dataset_name, 'psb_airplane')
         # prepare_psb('psb', 'vase')
 
     if dataset_name == 'shrec11':

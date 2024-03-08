@@ -91,14 +91,14 @@ dlmwrite(save_path, ring, 'delimiter', '\t');
 
 % 批处理
 for i = 1 : 1 : 20
-    fn = ['E:/3DModelData/PSB/Teddy/',num2str(i),'.off'];
+    fn = ['E:/3DModelData/PSB/Airplane/',num2str(i),'.off'];
     [vertex, face] = read_mesh(fn);
     fring = compute_face_ring(face);  % 就是邻接关系矩阵
     temp = cell2mat(fring);
     ring = reshape(temp, 3, []);
     ring = transpose(ring);
     % 保存
-    save_path = ['matlab/data/PSB/teddy/',num2str(i),'_ring.txt' ];
+    save_path = ['matlab/data/PSB/airplane/',num2str(i),'_ring.txt' ];
     dlmwrite(save_path, ring, 'delimiter', '\t');
 end
 
@@ -120,7 +120,7 @@ end
 
 % 批处理
 for i = 1 : 1 : 20
-    fn = ['E:/3DModelData/PSB/Teddy/',num2str(i),'.off'];
+    fn = ['E:/3DModelData/PSB/Airplane/',num2str(i),'.off'];
     [vertex, face] = read_mesh(fn);
     [adjacency_matrix, dual_vertex] = compute_dual_graph(face,vertex);
     geodesicDistances = calculateGeodesicDistances(dual_vertex, adjacency_matrix);
@@ -138,7 +138,7 @@ for i = 1 : 1 : 20
         end
     end
     % 保存
-    save_path = ['matlab/data/PSB/teddy/',num2str(i),'_ring_geo.txt' ];
+    save_path = ['matlab/data/PSB/airplane/',num2str(i),'_ring_geo.txt' ];
     dlmwrite(save_path, ring_geo, 'delimiter', '\t');
 end
 
@@ -172,26 +172,26 @@ end
 
 % 批处理
 for i = 1 : 1 : 20
-    fn = ['E:/3DModelData/PSB/Teddy/',num2str(i),'.off'];
+    fn = ['E:/3DModelData/PSB/Airplane/',num2str(i),'.off'];
     [vertex, face] = read_mesh(fn);
     [adjacency_matrix, dual_vertex] = compute_dual_graph(face,vertex);
     [DihedralAngles, Index] = szy_Compute_Dihedral_Angles(fn);
+    DihedralAngles = full(DihedralAngles);
 
     fring = compute_face_ring(face);  % 就是邻接关系矩阵
     temp = cell2mat(fring);
     ring = reshape(temp, 3, []);
     ring = transpose(ring);
-
-    ring_geo = repmat(ring,1,1);
+    ring_dih = repmat(ring,1,1);
     for j = 1 : size(ring,1)   % 一行
         for k = 1 : 3
             x = ring(j,k);    % 获得面片索引
-            ring_geo(j,k) = geodesicDistances(j,x);
+            ring_dih(j,k) = DihedralAngles(j,x);
         end
     end
     % 保存
-    save_path = ['matlab/data/PSB/teddy/',num2str(i),'_ring_geo.txt' ];
-    dlmwrite(save_path, ring, 'delimiter', '\t');
+    save_path = ['matlab/data/PSB/airplane/',num2str(i),'_ring_dih.txt' ];
+    dlmwrite(save_path, ring_dih, 'delimiter', '\t');
 end
 
 
