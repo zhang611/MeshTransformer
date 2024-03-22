@@ -6,9 +6,13 @@ import numpy as np
 import math
 import copy
 
+from torch.utils.data import DataLoader
+
+import my_dataset
+
 
 class PositionalEncoding(nn.Module):
-    "实现位置编码"
+    """实现位置编码"""
     def __init__(self, d_model, dropout, max_len=5000):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
@@ -29,11 +33,11 @@ class PositionalEncoding(nn.Module):
 
 
 def attention(query, key, value, mask=None, dropout=None):
-    "计算Scaled Dot Product Attention"
+    """计算Scaled Dot Product Attention"""
     d_k = query.size(-1)
-    scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
+    scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)   # 这就是attention的公式
     if mask is not None:
-        scores = scores.masked_fill(mask == 0, -1e9)
+        scores = scores.masked_fill(mask == 0, -1e9)   # 掩码
     p_attn = F.softmax(scores, dim=-1)
     if dropout is not None:
         p_attn = dropout(p_attn)
@@ -41,11 +45,12 @@ def attention(query, key, value, mask=None, dropout=None):
 
 
 class MultiHeadedAttention(nn.Module):
-    "根据参数构造模型"
+    """根据参数构造模型"""
+
     def __init__(self, h, d_model, dropout=0.1):
         super(MultiHeadedAttention, self).__init__()
         assert d_model % h == 0
-    # d_model需要可以被h（head数）整除
+        # d_model需要可以被h（head数）整除
         self.d_k = d_model // h
         self.h = h
         self.linears = clones(nn.Linear(d_model, d_model), 4)
@@ -58,10 +63,10 @@ class MultiHeadedAttention(nn.Module):
             mask = mask.unsqueeze(1)
         nbatches = query.size(0)
 
-    # 1) 在一个batch上做线性映射，来完成多头以及query、key、value的生成d_model => h * d_k
+        # 1) 在一个batch上做线性映射，来完成多头以及query、key、value的生成d_model => h * d_k
         query, key, value = \
             [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
-            for l, x in zip(self.linears, (query, key, value))]
+             for l, x in zip(self.linears, (query, key, value))]
 
         # 2) 同时完成多头中的注意力计算
         x, self.attn = attention(query, key, value, mask=mask, dropout=self.dropout)
@@ -72,7 +77,8 @@ class MultiHeadedAttention(nn.Module):
 
 
 class LayerNorm(nn.Module):
-    "构建层归一化"
+    """构建层归一化"""
+
     def __init__(self, features, eps=1e-6):
         super(LayerNorm, self).__init__()
         self.a_2 = nn.Parameter(torch.ones(features))
@@ -89,6 +95,7 @@ class SublayerConnection(nn.Module):
     """
     为残差连接单独构建一个模块
     """
+
     def __init__(self, size, dropout):
         super(SublayerConnection, self).__init__()
         self.norm = LayerNorm(size)
@@ -100,7 +107,8 @@ class SublayerConnection(nn.Module):
 
 
 class PositionwiseFeedForward(nn.Module):
-    "实现一个前向网络层"
+    """实现一个前向网络层"""
+
     def __init__(self, d_model, d_ff, dropout=0.1):
         super(PositionwiseFeedForward, self).__init__()
         self.w_1 = nn.Linear(d_model, d_ff)
@@ -112,7 +120,8 @@ class PositionwiseFeedForward(nn.Module):
 
 
 class EncoderLayer(nn.Module):
-    "编码器层，堆叠编码器层即可获得编码器"
+    """编码器层，堆叠编码器层即可获得编码器"""
+
     def __init__(self, size, self_attn, feed_forward, dropout):
         super(EncoderLayer, self).__init__()
         self.self_attn = self_attn
@@ -121,18 +130,19 @@ class EncoderLayer(nn.Module):
         self.size = size
 
     def forward(self, x, mask):
-        "当多个句子组成一个batch，由于长度不同，缺少的长度需要补齐(padding)。编码器层中的mask用来屏蔽padding的影响"
+        """当多个句子组成一个batch，由于长度不同，缺少的长度需要补齐(padding)。编码器层中的mask用来屏蔽padding的影响"""
         x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, mask))
         return self.sublayer[1](x, self.feed_forward)
 
 
 def clones(module, N):
-    "工具函数，基于一个编码器层快速获得N个相同的编码器层"
+    """工具函数，基于一个编码器层快速获得N个相同的编码器层"""
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
 
 class Encoder(nn.Module):
-    "堆叠N个编码器层形成的编码器"
+    """堆叠N个编码器层形成的编码器"""
+
     def __init__(self, layer, N):
         super(Encoder, self).__init__()
         self.layers = clones(layer, N)
@@ -145,20 +155,21 @@ class Encoder(nn.Module):
 
 
 def subsequent_mask(size):
-    "构造解码器需要的mask，使后面的单词无法“看到”前面的单词"
+    """构造解码器需要的mask，使后面的单词无法“看到”前面的单词"""
     attn_shape = (1, size, size)
     subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
     return torch.from_numpy(subsequent_mask) == 0
 
 
 class DecoderLayer(nn.Module):
-    "解码器层，堆叠解码器层即可获得解码器"
+    """解码器层，堆叠解码器层即可获得解码器"""
+
     def __init__(self, size, self_attn, src_attn, feed_forward, dropout):
         super(DecoderLayer, self).__init__()
         self.size = size
-        self.self_attn = self_attn
-        self.src_attn = src_attn
-        self.feed_forward = feed_forward
+        self.self_attn = self_attn        # 自己做自注意力
+        self.src_attn = src_attn          # 编码器的输出做自注意力
+        self.feed_forward = feed_forward  # 向前传播
         self.sublayer = clones(SublayerConnection(size, dropout), 3)
 
     def forward(self, x, memory, src_mask, tgt_mask):
@@ -169,7 +180,8 @@ class DecoderLayer(nn.Module):
 
 
 class Decoder(nn.Module):
-    "堆叠N个解码器层形成的解码器"
+    """堆叠N个解码器层形成的解码器"""
+
     def __init__(self, layer, N):
         super(Decoder, self).__init__()
         self.layers = clones(layer, N)
@@ -182,7 +194,8 @@ class Decoder(nn.Module):
 
 
 class Generator(nn.Module):
-    "输出层，由一个线性层与一个softmax层组成"
+    """输出层，由一个线性层与一个softmax层组成"""
+
     def __init__(self, d_model, vocab):
         super(Generator, self).__init__()
         self.proj = nn.Linear(d_model, vocab)
@@ -195,6 +208,7 @@ class EncoderDecoder(nn.Module):
     """
     一个标准的编码-解码模型架构
     """
+
     def __init__(self, encoder, decoder, src_embed, tgt_embed, generator):
         super(EncoderDecoder, self).__init__()
         self.encoder = encoder
@@ -214,14 +228,14 @@ class EncoderDecoder(nn.Module):
 
 
 def run_epoch(data_iter, model, loss_compute):
-    "一个标准的训练过程，输入分别为数据迭代器、模型与损失函数"
+    """一个标准的训练过程，输入分别为数据迭代器、模型与损失函数"""
     start = time.time()
     total_tokens = 0
     total_loss = 0
     tokens = 0
     for i, batch in enumerate(data_iter):
         out = model.forward(batch.src, batch.trg,
-        batch.src_mask, batch.trg_mask)
+                            batch.src_mask, batch.trg_mask)
         loss = loss_compute(out, batch.trg_y, batch.ntokens)
         total_loss += loss
         total_tokens += batch.ntokens
@@ -229,7 +243,17 @@ def run_epoch(data_iter, model, loss_compute):
         if i % 50 == 1:
             elapsed = time.time() - start
             print("Epoch Step: %d Loss: %f Tokens per Sec: %f" %
-            (i, loss / batch.ntokens, tokens / elapsed))
+                  (i, loss / batch.ntokens, tokens / elapsed))
             start = time.time()
             tokens = 0
     return total_loss / total_tokens
+
+
+
+
+
+
+
+
+
+

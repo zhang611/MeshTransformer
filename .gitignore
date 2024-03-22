@@ -1,8 +1,8 @@
-
 # 数据集和一些模型
 /datasets_processed/*
 *.off
 *.npz
+
 
 
 # 实验结果
@@ -12,6 +12,7 @@
 
 
 # matlab非代码文件
+*.asv
 *.txt
 !requirements.txt
 /matlab/data/*

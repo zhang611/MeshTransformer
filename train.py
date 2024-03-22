@@ -10,6 +10,9 @@ from torch.utils.data import DataLoader
 import my_dataset
 import net
 from utils import IOStream
+import new_net
+
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 
 def _init_():
@@ -27,11 +30,12 @@ def _init_():
 
 def train(args, io):
     # 加载数据集
-    path_train = args.data_path
+    data_path = 'datasets_processed/' + os.path.split(args.exp_name)[1].split('_')[0] + '/' + args.exp_name
+    path_train = data_path
     dataset = my_dataset.PSBDataset(args, path_train)
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)  # 一次看四个模型
 
-    path_test = args.data_path + '/' + 'test'
+    path_test = data_path + '/' + 'test'
     test_dataset = my_dataset.PSBDataset(args, path_test)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True)  # 都是4
 
@@ -39,15 +43,12 @@ def train(args, io):
 
     # 创建模型
     # model = zzc_net.MLP(args, out_c=args.out_c).to(device)
-
-    src_vocab_size = args.src_vocab_size
-    trg_vocab_size = args.trg_vocab_size
-    src_pad_idx = args.src_pad_idx
-    trg_pad_idx = args.trg_pad_idx
-    model = net.Transformer(args, src_vocab_size, trg_vocab_size, src_pad_idx, trg_pad_idx, device=device)
+    # model = net.Transformer(args, src_vocab_size, trg_vocab_size, src_pad_idx, trg_pad_idx, device=device)
+    model = new_net.Transformer(args)
 
     if args.pre_train:
-        model.load_state_dict(torch.load(args.model_path))
+        model_path = 'checkpoints/%s/models/model.pth' % args.exp_name
+        model.load_state_dict(torch.load(model_path))
         print('load model successfully')
 
     if args.use_sgd:
@@ -70,7 +71,7 @@ def train(args, io):
         total_time = 0.0
         correct = 0.0       # 记录一轮的累计准确率
         num = 0             # 使用的面片数量，算准确率使用
-        for data, label in dataloader:
+        for data, label in dataloader:    # 训练集太大了，全部看一遍太久了
             data = data.to(torch.float32)         # (4, 4*300, 5) 4个模型，每个模型取4条长300的序列，5个特征
             label = label.to(dtype=torch.int64)   # (4, 1200)
             data, label = data.to(device), label.to(device)
@@ -81,10 +82,11 @@ def train(args, io):
             opt.zero_grad()
             start_time = time.time()
             # 网络的输入(16, 300, 5)  标签(16, 300)
-            pred = model(data, label)   # 输出 (16, 300, 5)
+            # pred = model(data, label)   # 输出 (16, 300, 5)
+            pred = model(data)   # 输出 (16, 300, out_c)
             # loss = criterion(pred, label)
-            pred = pred.view(-1, 5)   # (16*300, 5)  方便后面算loss，算准确率
-            label = label.view(-1)    # (16*300, 5)
+            pred = pred.view(-1, args.out_c)   # (16*300, 5)  方便后面算loss，算准确率
+            label = label.view(-1)    # (4800, )
             loss = criterion(pred, label)
             loss.backward()
             opt.step()    # 更新优化器
@@ -124,8 +126,9 @@ def train(args, io):
                 label = label.view(-1, 300)
 
                 opt.zero_grad()
-                pred = model(data, label)
-                pred = pred.view(-1, 5)   # (4800, 5)
+                # pred = model(data, label)
+                pred = model(data)
+                pred = pred.view(-1, args.out_c)   # (4800, 5)
                 label = label.view(-1)    # (4800)
                 loss = criterion(pred, label)
                 preds = pred.max(dim=1)[1]
@@ -136,7 +139,7 @@ def train(args, io):
                 correct += (preds == label).sum().item()
 
             test_acc = correct * 1.0 / num
-            if test_acc >= best_test_acc:   # 用测试集上效果最好，是不是可以把序列数变大一点
+            if test_acc >= best_test_acc:
                 best_test_acc = test_acc
                 torch.save(model.state_dict(), 'checkpoints/%s/models/model.pth' % args.exp_name)
                 best_epoch = epoch
@@ -156,44 +159,42 @@ if __name__ == '__main__':
     ############################################################
     # 调参
     ############################################################
-    parser = argparse.ArgumentParser(description='Mesh Transformer')  # 使用命令行参数
-    parser.add_argument('--use_cuda', type=bool, default=True)
-    parser.add_argument('--full_test', type=bool, default=False)  # 是否把面片索引作为特征加上去,训练模式
+    parser = argparse.ArgumentParser(description='Mesh Transformer')           # 使用命令行参数
+    parser.add_argument('--device', type=str, default="cuda")     # 使用 GPU
+    parser.add_argument('--pre_train', type=bool, default=False, help='use Pretrained model')
 
-
-    # 数据集相关
-    parser.add_argument('--data_path', type=str, default='datasets_processed/psb/psb_ant')
-    parser.add_argument('--exp_name', type=str, default='psb_ant')
-    parser.add_argument('--model_path', type=str, default='checkpoints/psb_ant/models/model.pth',
-                        help='Pretrained model path')  # 验证模式使用
-    parser.add_argument('--off_path', type=str, default='E:/3DModelData/PSB/Ant/', help='off path')
-
-    # 神经网络相关
+    # 实验相关
+    # parser.add_argument('--exp_name', type=str, default='psb_airplane')  # xx_xx
+    parser.add_argument('--exp_name', type=str, default='HumanBodySegmentation_train')  # xx_xx
+    parser.add_argument('--pattern', type=str, default="train")   # train or test
     parser.add_argument('--feature_num', type=int, default=5, help='Number of features')  # 消融实验
-    parser.add_argument('--out_c', type=int, default=5, help='classes of this shape')
+    parser.add_argument('--out_c', type=int, default=8, help='classes of this shape')
+    parser.add_argument('--seq_len', type=int, default=300)          # 消融实验
+    parser.add_argument('--n_walks_per_model', type=int, default=4)  # 4*4=16，每次16条序列
+
+    # parser.add_argument('--data_path', type=str, default='datasets_processed/psb/psb_airplane')
+    # parser.add_argument('--model_path', type=str, default='checkpoints/psb_airplane/models/model.pth',
+    #                     help='Pretrained model path')  # 验证的时候用，保存模型用
+    # parser.add_argument('--off_path', type=str, default='E:/3DModelData/PSB/Airplane/', help='off path')
+
+    # 训练相关
     parser.add_argument('--lr', type=float, default=0.0001)
     parser.add_argument('--epochs', type=int, default=5000)
     parser.add_argument('--batch_size', type=int, default=4)    # 一次看四个模型
     parser.add_argument('--use_sgd', type=bool, default=False, help='Use SGD')
     parser.add_argument('--momentum', type=float, default=0.9, help='SGD momentum ')
     parser.add_argument('--dropout', type=float, default=0.1, help='dropout rate')
-    parser.add_argument('--pre_train', type=bool, default=False,
-                        help='use Pretrained model')  # 继续训练
 
     # transformer 参数
     parser.add_argument('--src_pad_idx', type=int, default=0, help='原序列不足用0填充')
-    parser.add_argument('--trg_pad_idx', type=int, default=0, help='标签序列不足用0填充')
+    # parser.add_argument('--trg_pad_idx', type=int, default=0, help='标签序列不足用0填充')
     parser.add_argument('--src_vocab_size', type=int, default=1024, help='输入序列的词汇表大小')
-    parser.add_argument('--trg_vocab_size', type=int, default=5, help='用类别数')
-
-    # 序列相关
-    parser.add_argument('--seq_len', type=int, default=300)  # 做消融实验，不一定是300，我的模型挺大的
-    parser.add_argument('--n_walks_per_model', type=int, default=4)  # 4*4=16，每次16条序列
-
-    # parser.add_argument('--index', type=int, default=0, help='which class to train')
-    # parser.add_argument('--attention_layers', type=int, default=0)
-    # parser.add_argument('--input_layer', type=tuple, default=(628, 1024, 256, 16))
-    # parser.add_argument('--offset', type=bool, default=True)
+    # parser.add_argument('--trg_vocab_size', type=int, default=5, help='用类别数')
+    parser.add_argument('--embed_size', type=int, default=512)
+    parser.add_argument('--num_layers', type=int, default=6)           # 自注意力层数
+    parser.add_argument('--forward_expansion', type=int, default=4)
+    parser.add_argument('--heads', type=int, default=8)
+    # parser.add_argument('--max_length', type=int, default=300)
     args = parser.parse_args()
 
     ############################################################
@@ -205,7 +206,7 @@ if __name__ == '__main__':
     io = IOStream('checkpoints/' + args.exp_name + '/0_run.log')
     io.cprint(str(args))
 
-    if args.use_cuda and torch.cuda.is_available():
+    if args.device == "cuda" and torch.cuda.is_available():
         args.device = "cuda"
         io.cprint('Using GPU')
     else:

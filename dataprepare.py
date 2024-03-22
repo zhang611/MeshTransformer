@@ -87,7 +87,7 @@ def load_mesh(model_fn):
     return mesh
 
 
-def prepare_directory(dataset_name, subfolder, pathname_expansion=None, p_out=None):
+def prepare_directory(dataset_name, subfolder, sub, pathname_expansion=None, p_out=None):
     # dataset_name = 'psb'
     # pathname_expansion = 'E:\\3DModelData\\PSB\\Teddy/*.off'
     # p_out = 'datasets_processed/psb/psb_teddy'
@@ -99,6 +99,12 @@ def prepare_directory(dataset_name, subfolder, pathname_expansion=None, p_out=No
         os.makedirs(p_out)
 
     filenames = glob.glob(pathname_expansion)  # 模型 off 路径列表
+    bound_num = 310
+    new_filenames = []
+    for fn in filenames:
+        if int(os.path.split(fn)[1].split('.')[0]) <= bound_num:
+            new_filenames.append(fn)
+    filenames = new_filenames
     filenames.sort()  # 先排序,字符串排序，1后面是10
     for file in tqdm(filenames, disable=False):  # diasble 是否输出详细信息
         out_fn = p_out + '/' + os.path.split(file)[1].split('.')[0]   # npz的输出路径
@@ -111,28 +117,27 @@ def prepare_directory(dataset_name, subfolder, pathname_expansion=None, p_out=No
 
         # 加载 ring
         # path = "matlab/data/PSB/teddy/" + os.path.split(file)[1].split('.')[0] + "_ring.txt"
-        path = "matlab/data/PSB/" + subfolder.split('_')[1] + "/" + os.path.split(file)[1].split('.')[0] + "_ring.txt"
+        path = "matlab/data/HumanBodySegmentation/" + subfolder.split('_')[1] + "/" + os.path.split(file)[1].split('.')[0] + "_ring.txt"
         ring = np.loadtxt(path, delimiter='\t')
         ring = ring - 1   # 否则后面超出索引，获得的二面角和测地距离也不对
         mesh_data['ring'] = ring
 
         # 加载 测地距离，都是matlab算好的
-        path = "matlab/data/PSB/" + subfolder.split('_')[1] + "/" + os.path.split(file)[1].split('.')[0] + "_ring_geo.txt"
+        path = "matlab/data/HumanBodySegmentation/" + subfolder.split('_')[1] + "/" + os.path.split(file)[1].split('.')[0] + "_ring_geo.txt"
         ring_geo = np.loadtxt(path, delimiter='\t')
         mesh_data['geodesic'] = ring_geo
 
         # 加载 二面角
-        path = "matlab/data/PSB/" + subfolder.split('_')[1] + "/" + os.path.split(file)[1].split('.')[0] + "_ring_dih.txt"
+        path = "matlab/data/HumanBodySegmentation/" + subfolder.split('_')[1] + "/" + os.path.split(file)[1].split('.')[0] + "_ring_dih.txt"
         ring_dih = np.loadtxt(path, delimiter='\t')
         mesh_data['dihedral'] = ring_dih
 
-        # name
-        mesh_data['name'] = [os.path.split(p_out)[1]]
 
         # 加载标签
         # 直接从文件连提取的，没经过matlab，不需要+1就是0到4
-        label_path = 'E:\\3DModelData/PSB/Airplane/' + os.path.split(file)[1].split('.')[0] + '.seg'   # TODO 修改
+        label_path = 'E:\\3DModelData/HumanBodySegmentation/'+ sub + '/' + os.path.split(file)[1].split('.')[0] + '.seg'   # TODO 修改
         labels = np.loadtxt(label_path)
+        labels = labels - 1
         mesh_data['labels'] = labels
 
         str_to_add = '_not_changed'
@@ -145,16 +150,28 @@ def prepare_psb(dataset, subfolder):
     sub = subfolder[4:].capitalize()
     path_in = "E:\\3DModelData/PSB/" + sub    # 模型所在位置
     p_out = 'datasets_processed/' + dataset + '/' + subfolder  # 'datasets_processed/psb/psb_teddy'
-    prepare_directory(dataset, subfolder, pathname_expansion=path_in + '/' + '*.off', p_out=p_out)
+    prepare_directory(dataset, subfolder, sub, pathname_expansion=path_in + '/' + '*.off', p_out=p_out)
+
+
+def prepare_hbs(dataset, subfolder):
+    sub = subfolder[22:]
+    path_in = "E:\\3DModelData/HumanBodySegmentation/" + sub    # 模型所在位置
+    p_out = 'datasets_processed/' + dataset + '/' + subfolder       # 'datasets_processed/HumanBodySegmentation/test'
+    prepare_directory(dataset, subfolder, sub, pathname_expansion=path_in + '/' + '*.off', p_out=p_out)
 
 
 def prepare_one_dataset(dataset_name):
-    dataset_name = dataset_name.lower()
     if dataset_name == 'psb':
-        # prepare_psb(dataset_name, 'psb_teddy')
-        # prepare_psb(dataset_name, 'psb_ant')
-        prepare_psb(dataset_name, 'psb_airplane')
+        # prepare_psb(dataset_name, 'psb_teddy')   # 5
+        # prepare_psb(dataset_name, 'psb_ant')     # 5
+        # prepare_psb(dataset_name, 'psb_airplane')    # 5
+        prepare_psb(dataset_name, 'psb_human')
         # prepare_psb('psb', 'vase')
+
+    if dataset_name == 'HumanBodySegmentation':
+        prepare_hbs(dataset_name, 'test')
+        prepare_hbs(dataset_name, 'HumanBodySegmentation_train')
+        # prepare(dataset_name, 'train')
 
     if dataset_name == 'shrec11':
         print('To do later')
@@ -177,7 +194,23 @@ if __name__ == '__main__':
     np.random.seed(1)
 
     # dataset_name = sys.argv[1]  # python dataset_prepare.py 'PSB'
-    dataset_name = 'psb'
+    # dataset_name = 'psb'
+    dataset_name = 'HumanBodySegmentation'
     prepare_one_dataset(dataset_name)
+
+    # 输出模型的类别数
+    path = r'datasets_processed/HumanBodySegmentation/HumanBodySegmentation_train/123_not_changed.npz'
+    mesh_data = np.load(path, encoding='latin1', allow_pickle=True)
+    # 标签从1开始的，感觉没必要减1,0可以作为没游走到的标识
+    # 必须从0开始，否则后面算 loss 有问题
+    # psb 的标签就是从0开始的，humanbody的标签从1开始的，改成从0开始，统一一下
+    max_num_class = mesh_data['labels'].max()
+    min_num_class = mesh_data['labels'].min()
+    print(max_num_class)
+    print(min_num_class)
+    print(f"模型类别数为：{max_num_class - min_num_class + 1}")
+
+
+
 
 

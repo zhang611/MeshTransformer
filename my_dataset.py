@@ -42,7 +42,7 @@ def get_seq_random_walk_random_global_jumps(mesh_extra, f0, seq_len):
     backward_steps = 1  # 后退步数为1
     jump_prob = 1 / 100  # jump概率0.01
     for i in range(1, seq_len + 1):
-        this_nbrs = nbrs[seq[i - 1]]  # [7518 7545 7547]  前一个顶点所联通的其他顶点的索引，也就是这一步随机游走的选择,[1,5,9]  感觉是因为1的问题
+        this_nbrs = nbrs[seq[i - 1]]  # [7518 7545 7547]  前一个顶点所联通的其他顶点的索引，也就是这一步随机游走的选择,[1,5,9]  感觉是因为1的问题，还有range那边
         nodes_to_consider = [n for n in this_nbrs if
                              not visited[n]]  # 备选顶点 [5, 6, 11, 14, 17] 这句代码，首先-1会被去掉因为visited[-1] = True，其次用过的点也是true
         jump_now = np.random.binomial(1, jump_prob)  # 从二项分布中抽取随机样本，抛硬币，抛一次，1的概率0.01，绝大数情况都不跳
@@ -80,15 +80,17 @@ class PSBDataset(Dataset):
         filename = self.filenames[indices]  # 1到16,每次随机选一个模型
         meta = np.load(filename, encoding='latin1', allow_pickle=True)  # 加载处理好的模型字典
 
-        if self.args.full_test:
+        if self.args.pattern == 'test':
             feature_out = np.ndarray((0, 6))
-        else:
+        elif self.args.pattern == 'train':
             feature_out = np.ndarray((0, 5))
+        else:
+            print("check parameter")
 
         label_out = np.array(())
         # 一个模型抽几条序列，默认就是1，训练我要改成4，测试我要改成16
         for seq_i in range(self.args.n_walks_per_model):    # 每个模型要获得四条序列
-            f0 = random.randint(0, meta["faces"].shape[0])  # 随机选择初始点f0
+            f0 = random.randint(0, meta["faces"].shape[0]-1)  # 随机选择初始点f0
             seq, jump = get_seq_random_walk_random_global_jumps(meta, f0, 300)  # (301,) 一条序列 面片索引
 
             ring = meta['ring']  # (-1, 3)
@@ -112,6 +114,7 @@ class PSBDataset(Dataset):
 
             center = meta['center']  # (27648, 3)
             label = meta['labels']   # (27648, )
+            # label = label - 1   # (0, 1, 2,...)  prepare里面统一
 
             seq = seq[:-1]
             label_seq = label[seq]  # (300,)
@@ -119,7 +122,7 @@ class PSBDataset(Dataset):
             feature_geo = feature_geo[:-1].reshape(300, 1)
             feature_dih = feature_dih[:-1].reshape(300, 1)
 
-            if self.args.full_test:
+            if self.args.pattern == 'test':
                 seq = seq.reshape(300, 1)
                 feature_seq = np.concatenate((feature_center, feature_geo, feature_dih, seq), axis=1)
             else:
@@ -128,7 +131,7 @@ class PSBDataset(Dataset):
             feature_out = np.vstack((feature_out, feature_seq))
             label_out = np.hstack((label_out, label_seq))
 
-        if self.args.full_test:
+        if self.args.pattern == 'test':
             return filename, feature_out, label_out
         else:
             return feature_out, label_out

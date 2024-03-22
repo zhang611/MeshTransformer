@@ -91,14 +91,16 @@ dlmwrite(save_path, ring, 'delimiter', '\t');
 
 % 批处理
 for i = 1 : 1 : 20
-    fn = ['E:/3DModelData/PSB/Airplane/',num2str(i),'.off'];
+    fn = ['E:/3DModelData/PSB/Bearing/',num2str(i),'.off'];
+    % fn = ['E:/3DModelData/HumanBodySegmentation/train/',num2str(i),'.off'];
     [vertex, face] = read_mesh(fn);
     fring = compute_face_ring(face);  % 就是邻接关系矩阵
     temp = cell2mat(fring);
     ring = reshape(temp, 3, []);
     ring = transpose(ring);
     % 保存
-    save_path = ['matlab/data/PSB/airplane/',num2str(i),'_ring.txt' ];
+    save_path = ['matlab/data/PSB/bearing/',num2str(i),'_ring.txt' ];
+    % save_path = ['matlab/data/HumanBodySegmentation/train/',num2str(i),'_ring.txt' ];
     dlmwrite(save_path, ring, 'delimiter', '\t');
 end
 
@@ -120,7 +122,8 @@ end
 
 % 批处理
 for i = 1 : 1 : 20
-    fn = ['E:/3DModelData/PSB/Airplane/',num2str(i),'.off'];
+    fn = ['E:/3DModelData/PSB/Bearing/',num2str(i),'.off'];
+    % fn = ['E:/3DModelData/HumanBodySegmentation/train/',num2str(i),'.off'];
     [vertex, face] = read_mesh(fn);
     [adjacency_matrix, dual_vertex] = compute_dual_graph(face,vertex);
     geodesicDistances = calculateGeodesicDistances(dual_vertex, adjacency_matrix);
@@ -138,7 +141,8 @@ for i = 1 : 1 : 20
         end
     end
     % 保存
-    save_path = ['matlab/data/PSB/airplane/',num2str(i),'_ring_geo.txt' ];
+    save_path = ['matlab/data/PSB/bearing/',num2str(i),'_ring_geo.txt' ];
+    % save_path = ['matlab/data/HumanBodySegmentation/train/',num2str(i),'_ring_geo.txt' ];
     dlmwrite(save_path, ring_geo, 'delimiter', '\t');
 end
 
@@ -169,10 +173,13 @@ for i = 1 : size(ring,1)   % 一行
 end
 
 
-
+    close all;
+    clear;
+    clc;
 % 批处理
 for i = 1 : 1 : 20
-    fn = ['E:/3DModelData/PSB/Airplane/',num2str(i),'.off'];
+    % fn = ['E:/3DModelData/PSB/Bearing/',num2str(i),'.off'];
+    fn = ['E:/3DModelData/HumanBodySegmentation/train/',num2str(i),'.off'];
     [vertex, face] = read_mesh(fn);
     [adjacency_matrix, dual_vertex] = compute_dual_graph(face,vertex);
     [DihedralAngles, Index] = szy_Compute_Dihedral_Angles(fn);
@@ -189,8 +196,8 @@ for i = 1 : 1 : 20
             ring_dih(j,k) = DihedralAngles(j,x);
         end
     end
-    % 保存
-    save_path = ['matlab/data/PSB/airplane/',num2str(i),'_ring_dih.txt' ];
+    % 保存 
+    save_path = ['matlab/data/PSB/bearing/',num2str(i),'_ring_dih.txt' ];
     dlmwrite(save_path, ring_dih, 'delimiter', '\t');
 end
 
