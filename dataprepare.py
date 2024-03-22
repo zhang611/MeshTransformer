@@ -1,20 +1,20 @@
 import glob
 import os
 from tqdm import tqdm
-
 import numpy as np
 import open3d
 import trimesh
 from easydict import EasyDict
+from utils import get_label_num
 
 
 def prepare_edges_and_kdtree(mesh):
     """obj文件里只有顶点和面，通过顶点和面得到边"""
-    vertices = mesh['vertices']   # (13826, 3)
-    faces = mesh['faces']         # (27648, 3)
+    vertices = mesh['vertices']  # (13826, 3)
+    faces = mesh['faces']  # (27648, 3)
     mesh['edges'] = [set() for _ in range(vertices.shape[0])]  # 初始化顶点数个空集合
-    for i in range(faces.shape[0]):   # 一个面一个面的看
-        for v in faces[i]:            # 一个面三个点  [41, 40, 33]
+    for i in range(faces.shape[0]):  # 一个面一个面的看
+        for v in faces[i]:  # 一个面三个点  [41, 40, 33]
             mesh['edges'][v] |= set(faces[i])  # 把401 40 33 放到 41 索引下，其他同理
     for i in range(vertices.shape[0]):
         if i in mesh['edges'][i]:
@@ -42,11 +42,11 @@ def prepare_edges_and_kdtree(mesh):
 
 def get_center(mesh):
     """获得面的重心坐标"""
-    vertices = mesh['vertices']   # (13826, 3)
-    faces = mesh['faces']         # (27648, 3)
+    vertices = mesh['vertices']  # (13826, 3)
+    faces = mesh['faces']  # (27648, 3)
     position = []
     for i in range(len(faces)):
-        a, b, c = faces[i]   # 41 40 33
+        a, b, c = faces[i]  # 41 40 33
         center = vertices[0].copy()  # 初始化
         # TODO 就是a不用a-1得到的和matlab算的一样，再验证一下这个,也可能是matlab有问题
         center[0] = (vertices[a][0] + vertices[b][0] + vertices[c][0]) / 3  # x 坐标
@@ -56,24 +56,21 @@ def get_center(mesh):
     mesh['center'] = np.array(position)
 
 
-def add_fields_and_dump_model(mesh_data, fileds_needed, out_fn, dataset_name, dump_model=True):
-    # fileds_needed 字典需要的键
-    # out_fn 输出路径  'datasets_processed/psb/psb_teddy/1_not_changed_'
-    # dataset_name = 'psb'
-    m = {}   # 存放模型的字典
+def add_fields_and_dump_model(mesh_data, needed, out_fn, dump_model=True):
+    m = {}  # 存放模型的字典
     for k, v in mesh_data.items():
-        if k in fileds_needed:
-            m[k] = v               # 先把前面搞好的写进去，顶点,面,标签,ring
+        if k in needed:
+            m[k] = v  # 先把前面搞好的6个写进去，顶点,面,标签,ring,dih,geo
 
-    for field in fileds_needed:    # 初始化其他键的值
+    for field in needed:  # 初始化其他键的值
         if field not in m.keys():
-            if field == 'edges':              # 通过顶点和面得到边
-                prepare_edges_and_kdtree(m)   # 边的信息有两个，edges和kdtree_query
+            if field == 'edges':  # 通过顶点和面得到边
+                prepare_edges_and_kdtree(m)  # 边的信息有两个，edges和kdtree_query
             if field == 'center':
                 get_center(m)
 
     if dump_model:
-        np.savez(out_fn, **m)    # 一个obj变成一个npz，神经网络就用这个
+        np.savez(out_fn, **m)  # 一个obj变成一个npz，神经网络就用这个
 
     return m
 
@@ -87,86 +84,78 @@ def load_mesh(model_fn):
     return mesh
 
 
-def prepare_directory(dataset_name, subfolder, sub, pathname_expansion=None, p_out=None):
-    # dataset_name = 'psb'
-    # pathname_expansion = 'E:\\3DModelData\\PSB\\Teddy/*.off'
-    # p_out = 'datasets_processed/psb/psb_teddy'
-    fileds_needed = ['vertices', 'faces', 'labels', 'ring', 'name',
-                     'center', 'edges', 'kdtree',
-                     'geodesic', 'dihedral']  # mesh字典的键，10个
+def prepare_directory(dataset_name, model_name, pathname_expansion=None, p_out=None, f_idx=0):  # f_idx保证标签的索引0开始
+    key_needed = ['vertices', 'faces', 'labels', 'center',
+                  'ring', 'geodesic', 'dihedral',
+                  'edges', 'kdtree']  # mesh字典的键，9个
 
     if not os.path.isdir(p_out):
         os.makedirs(p_out)
 
     filenames = glob.glob(pathname_expansion)  # 模型 off 路径列表
-    bound_num = 310
-    new_filenames = []
-    for fn in filenames:
-        if int(os.path.split(fn)[1].split('.')[0]) <= bound_num:
-            new_filenames.append(fn)
-    filenames = new_filenames
-    filenames.sort()  # 先排序,字符串排序，1后面是10
-    for file in tqdm(filenames, disable=False):  # diasble 是否输出详细信息
-        out_fn = p_out + '/' + os.path.split(file)[1].split('.')[0]   # npz的输出路径
-        # 'datasets_processed/psb/psb_teddy/1'
-        mesh = load_mesh(file)
-        # mesh_orig = mesh
+    filenames.sort()  # 先排序,字符串排序，1后面是10,排不排序也无所谓了
+    for file in tqdm(filenames, disable=False):  # disable 是否输出详细信息
+        model_num = os.path.split(file)[1].split('.')[0]  # 几号模型
+        out_fn = os.path.join(p_out, model_num)  # 'datasets_processed/psb/teddy/1'
 
         # 加载顶点和面
+        mesh = load_mesh(file)
         mesh_data = EasyDict({'vertices': np.asarray(mesh.vertices), 'faces': np.asarray(mesh.triangles)})
 
-        # 加载 ring
-        # path = "matlab/data/PSB/teddy/" + os.path.split(file)[1].split('.')[0] + "_ring.txt"
-        path = "matlab/data/HumanBodySegmentation/" + subfolder.split('_')[1] + "/" + os.path.split(file)[1].split('.')[0] + "_ring.txt"
-        ring = np.loadtxt(path, delimiter='\t')
-        ring = ring - 1   # 否则后面超出索引，获得的二面角和测地距离也不对
+        # 加载 ring 相关
+        ring_root = "matlab/data"
+        ring_path = os.path.join(ring_root, dataset_name, model_name, model_num + "_ring.txt")
+        ring = np.loadtxt(ring_path, delimiter='\t')
+        ring = np.int64(ring - 1)  # 统一面片索引从0开始，并且是int64格式
         mesh_data['ring'] = ring
 
-        # 加载 测地距离，都是matlab算好的
-        path = "matlab/data/HumanBodySegmentation/" + subfolder.split('_')[1] + "/" + os.path.split(file)[1].split('.')[0] + "_ring_geo.txt"
-        ring_geo = np.loadtxt(path, delimiter='\t')
+        # 加载 测地距离，都是matlab算好的  TODO：有没有必要放大一些，现在是0.001附近
+        geo_path = os.path.join(ring_root, dataset_name, model_name, model_num + "_ring_geo.txt")
+        ring_geo = np.loadtxt(geo_path, delimiter='\t')
         mesh_data['geodesic'] = ring_geo
 
-        # 加载 二面角
-        path = "matlab/data/HumanBodySegmentation/" + subfolder.split('_')[1] + "/" + os.path.split(file)[1].split('.')[0] + "_ring_dih.txt"
-        ring_dih = np.loadtxt(path, delimiter='\t')
+        # 加载 二面角  TODO 是不是要放大，这个角度到底是什么角度
+        dih_path = os.path.join(ring_root, dataset_name, model_name, model_num + "_ring_dih.txt")
+        ring_dih = np.loadtxt(dih_path, delimiter='\t')
         mesh_data['dihedral'] = ring_dih
 
-
         # 加载标签
-        # 直接从文件连提取的，没经过matlab，不需要+1就是0到4
-        label_path = 'E:\\3DModelData/HumanBodySegmentation/'+ sub + '/' + os.path.split(file)[1].split('.')[0] + '.seg'   # TODO 修改
+        label_path = file.split(".")[0] + ".seg"  # 后缀改成seg就是标签
         labels = np.loadtxt(label_path)
-        labels = labels - 1
+        labels = np.int64(labels - f_idx)
         mesh_data['labels'] = labels
 
-        str_to_add = '_not_changed'
+        str_to_add = f'_{model_name}_original'
         out_fc_full = out_fn + str_to_add  # 最后的npz输出路径
-        add_fields_and_dump_model(mesh_data, fileds_needed, out_fc_full, dataset_name)
+        add_fields_and_dump_model(mesh_data, key_needed, out_fc_full)
 
 
 def prepare_psb(dataset, subfolder):
-    # path_in = r"E:\3DModelData\PSB\Teddy"   # 模型所在位置
-    sub = subfolder[4:].capitalize()
-    path_in = "E:\\3DModelData/PSB/" + sub    # 模型所在位置
-    p_out = 'datasets_processed/' + dataset + '/' + subfolder  # 'datasets_processed/psb/psb_teddy'
-    prepare_directory(dataset, subfolder, sub, pathname_expansion=path_in + '/' + '*.off', p_out=p_out)
+    datasets_root = "datasets_raw/psb"  # 数据集所在的根目录
+    path_in = os.path.join(datasets_root, subfolder)  # teddy模型所在目录
+    # path_in = "E:\\3DModelData/PSB/" + sub            # 模型所在位置  r"E:\3DModelData\PSB\teddy"
+    out_root = "datasets_processed"  # 输出根目录
+    p_out = os.path.join(out_root, dataset, subfolder)  # 输出目录
+    pathname_expansion = os.path.join(path_in, "*.off")
+    prepare_directory(dataset, subfolder, pathname_expansion, p_out, f_idx=0)
 
 
 def prepare_hbs(dataset, subfolder):
     sub = subfolder[22:]
-    path_in = "E:\\3DModelData/HumanBodySegmentation/" + sub    # 模型所在位置
-    p_out = 'datasets_processed/' + dataset + '/' + subfolder       # 'datasets_processed/HumanBodySegmentation/test'
-    prepare_directory(dataset, subfolder, sub, pathname_expansion=path_in + '/' + '*.off', p_out=p_out)
+    path_in = "E:\\3DModelData/HumanBodySegmentation/" + sub  # 模型所在位置
+    p_out = 'datasets_processed/' + dataset + '/' + subfolder  # 'datasets_processed/HumanBodySegmentation/test'
+    prepare_directory(dataset, subfolder, pathname_expansion=path_in + '/' + '*.off', p_out=p_out)
 
 
 def prepare_one_dataset(dataset_name):
     if dataset_name == 'psb':
-        # prepare_psb(dataset_name, 'psb_teddy')   # 5
-        # prepare_psb(dataset_name, 'psb_ant')     # 5
-        # prepare_psb(dataset_name, 'psb_airplane')    # 5
-        prepare_psb(dataset_name, 'psb_human')
-        # prepare_psb('psb', 'vase')
+        # model_list = ["airplane", "ant", "armadillo", "bearing", "bird", "bust", "chair",
+        #               "cup", "fish", "fourLeg", "glasses", "hand", "human", "mech",
+        #               "octopus", "plier", "table", "teddy", "vase"]
+
+        model_list = ["teddy"]
+        for model in model_list:
+            prepare_psb(dataset_name, model)
 
     if dataset_name == 'HumanBodySegmentation':
         prepare_hbs(dataset_name, 'test')
@@ -174,9 +163,6 @@ def prepare_one_dataset(dataset_name):
         # prepare(dataset_name, 'train')
 
     if dataset_name == 'shrec11':
-        print('To do later')
-
-    if dataset_name == 'cubes':
         print('To do later')
 
     # Semantic Segmentations
@@ -190,27 +176,13 @@ def prepare_one_dataset(dataset_name):
         # prepare_seg_from_meshcnn('coseg', 'coseg_vases')
 
 
+"""
+psb 的标签就是从0开始的，human_body的标签从1开始的，统一一下
+"""
 if __name__ == '__main__':
     np.random.seed(1)
-
-    # dataset_name = sys.argv[1]  # python dataset_prepare.py 'PSB'
-    # dataset_name = 'psb'
-    dataset_name = 'HumanBodySegmentation'
+    dataset_name = 'psb'  # 'HumanBodySegmentation'
     prepare_one_dataset(dataset_name)
 
-    # 输出模型的类别数
-    path = r'datasets_processed/HumanBodySegmentation/HumanBodySegmentation_train/123_not_changed.npz'
-    mesh_data = np.load(path, encoding='latin1', allow_pickle=True)
-    # 标签从1开始的，感觉没必要减1,0可以作为没游走到的标识
-    # 必须从0开始，否则后面算 loss 有问题
-    # psb 的标签就是从0开始的，humanbody的标签从1开始的，改成从0开始，统一一下
-    max_num_class = mesh_data['labels'].max()
-    min_num_class = mesh_data['labels'].min()
-    print(max_num_class)
-    print(min_num_class)
-    print(f"模型类别数为：{max_num_class - min_num_class + 1}")
-
-
-
-
-
+    path = "datasets_processed/psb/teddy/1_teddy_original.npz"
+    print("类别数为：", get_label_num(path))

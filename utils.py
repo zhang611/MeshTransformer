@@ -1,7 +1,20 @@
 import torch
 import torch.nn.functional as F
 import numpy as np
+
+
 # import matplotlib.pyplot as plot
+
+
+def get_label_num(path):
+    # 输出模型的类别数
+    # path = r'datasets_processed/HumanBodySegmentation/HumanBodySegmentation_train/123_not_changed.npz'
+    mesh_data = np.load(path, encoding='latin1', allow_pickle=True)
+    max_num_class = mesh_data['labels'].max()
+    min_num_class = mesh_data['labels'].min()
+    label_num = max_num_class - min_num_class + 1
+    return label_num
+
 
 
 class IOStream():
@@ -14,12 +27,11 @@ class IOStream():
             self.f.write(text)
         else:
             print(text)
-            self.f.write(text+'\n')
+            self.f.write(text + '\n')
         self.f.flush()
 
     def close(self):
         self.f.close()
-
 
 
 def cal_loss(pred, gold, smoothing=True):
@@ -40,9 +52,6 @@ def cal_loss(pred, gold, smoothing=True):
         loss = F.cross_entropy(pred, gold, reduction='mean')
 
     return loss
-
-
-
 
 
 def square_distance(src, dst):
@@ -110,9 +119,6 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
     return group_idx
 
 
-
-
-
 def read_off(off_path):
     """ 读取.off文件，输出顶点v、面片f的列表 """
     f = open(off_path, 'r')
@@ -146,12 +152,12 @@ def load_data_and_label(data_dir, label_dir, partition, index):
         data_idx = test_idx
     for i in data_idx:
         print(i)
-        DATA_DIR = os.path.join(data_dir, str(i) + '.txt')    # 数据文件
+        DATA_DIR = os.path.join(data_dir, str(i) + '.txt')  # 数据文件
         LABEL_DIR = os.path.join(label_dir, str(i) + '.seg')  # 标签文件
 
-        data = np.loadtxt(DATA_DIR)     # (N,628)
-        label = np.loadtxt(LABEL_DIR)   # (N,)
-        data_list.append(data)          # 累加所有数据，一行一个面片
+        data = np.loadtxt(DATA_DIR)  # (N,628)
+        label = np.loadtxt(LABEL_DIR)  # (N,)
+        data_list.append(data)  # 累加所有数据，一行一个面片
         label_list.append(label)
 
         # mesh字典里面有，特征，标签，顶点，面片，边
@@ -181,7 +187,7 @@ def knn_point(nsample, xyz, new_xyz):
         group_idx: grouped points index, [B, S, nsample]
     """
     sqrdists = square_distance(new_xyz, xyz)
-    _, group_idx = torch.topk(sqrdists, nsample, dim = -1, largest=False, sorted=False)
+    _, group_idx = torch.topk(sqrdists, nsample, dim=-1, largest=False, sorted=False)
     return group_idx
 
 
@@ -198,18 +204,18 @@ def sample_and_group(npoint, radius, nsample, xyz, points):
         new_points: sampled points data, [B, npoint, nsample, 3+D]
     """
     B, N, C = xyz.shape
-    S = npoint 
+    S = npoint
     xyz = xyz.contiguous()
 
-    fps_idx = pointnet2_utils.furthest_point_sample(xyz, npoint).long() # [B, npoint]
-    new_xyz = index_points(xyz, fps_idx) 
+    fps_idx = pointnet2_utils.furthest_point_sample(xyz, npoint).long()  # [B, npoint]
+    new_xyz = index_points(xyz, fps_idx)
     new_points = index_points(points, fps_idx)
     # new_xyz = xyz[:]
     # new_points = points[:]
 
     idx = knn_point(nsample, xyz, new_xyz)
     #idx = query_ball_point(radius, nsample, xyz, new_xyz)
-    grouped_xyz = index_points(xyz, idx) # [B, npoint, nsample, C]
+    grouped_xyz = index_points(xyz, idx)  # [B, npoint, nsample, C]
     grouped_xyz_norm = grouped_xyz - new_xyz.view(B, S, 1, C)
     grouped_points = index_points(points, idx)
     grouped_points_norm = grouped_points - new_points.view(B, S, 1, -1)

@@ -1,3 +1,5 @@
+import argparse
+
 from torch.utils.data import Dataset
 import torch
 import numpy as np
@@ -11,7 +13,7 @@ from torch.utils.data import DataLoader
 
 '''
 训练需要的
-一次吐出一条序列的特征，输入神经网络
+一次吐出四条序列的特征，输入神经网络
 还需要对应的标签
 20个模型，16个训练集，4个测试集
 首先在16个模型里面随机选一个模型，然后随机选一个初始点，游走产生一条300个面的序列索引
@@ -23,17 +25,14 @@ from torch.utils.data import DataLoader
 def get_seq_random_walk_random_global_jumps(mesh_extra, f0, seq_len):
     """mesh_extra是保存结果的，f0是随机的初始点，seq_len是300序列长度"""
     nbrs = mesh_extra['ring']  # 用顶点索引定义的边(27648, 3)  备选点就是这三个相邻的面
-    nbrs = np.int64(nbrs)
-
-    # for i in range(mesh_extra['center_edges'].shape[0]):
-    #     mesh_extra['center_edges'][i] = list(mesh_extra['center_edges'][i])  # 集合转列表,TODO 放到数据处理阶段去，太慢了
+    # nbrs = np.int64(nbrs)
 
     for i in range(nbrs.shape[0]):
         nbrs[i] = list(nbrs[i])
 
     n_vertices = mesh_extra['center'].shape[0]  # 重心的数量 27648
     seq = np.zeros((seq_len + 1,), dtype=np.int32)  # 初始化序列(301,)
-    jumps = np.zeros((seq_len + 1,), dtype=np.bool_)       # (301,)全false,不同版本numpy的bool不同
+    jumps = np.zeros((seq_len + 1,), dtype=np.bool_)  # (301,)全false,不同版本numpy的bool不同
     visited = np.zeros((n_vertices + 1,), dtype=np.bool_)  # (27648,)全false,用过的点是true
     visited[-1] = True  # 用过的点变成true
     visited[f0] = True
@@ -88,47 +87,43 @@ class PSBDataset(Dataset):
             print("check parameter")
 
         label_out = np.array(())
-        # 一个模型抽几条序列，默认就是1，训练我要改成4，测试我要改成16
-        for seq_i in range(self.args.n_walks_per_model):    # 每个模型要获得四条序列
-            f0 = random.randint(0, meta["faces"].shape[0]-1)  # 随机选择初始点f0
+        for seq_i in range(self.args.n_walks_per_model):          # 每个模型要获得四条序列， 完全测试为16
+            f0 = random.randint(0, meta["faces"].shape[0] - 1)  # 随机选择初始点f0
             seq, jump = get_seq_random_walk_random_global_jumps(meta, f0, 300)  # (301,) 一条序列 面片索引
 
-            ring = meta['ring']  # (-1, 3)
-            ring = ring.astype(np.int32)
+            ring = meta['ring']            # (-1, 3)
             ring_geo = meta['geodesic']
             ring_dih = meta['dihedral']
             feature_geo = np.zeros(seq.shape, dtype=float)
             feature_dih = np.zeros(seq.shape, dtype=float)
-
-            for i, num in enumerate(seq):  # [7648, 1794, 4065, 5140 ...]
-                if i == (len(seq) - 1):
+            for i, num in enumerate(seq, 1):    # [7648, 1794, 4065, 5140 ...]
+                if i == self.args.seq_len:
                     break
-                index = [j for j, x in enumerate(ring[num]) if x == seq[i + 1]]
+                index = [j for j, x in enumerate(ring[num]) if x == seq[i]]  # 如果我序列里的下一个面片，和ring里找的对应
                 if index:
                     index = index[0]
-                    feature_geo[i] = ring_geo[num][index]
-                    feature_dih[i] = ring_dih[num][index]
+                    feature_geo[i-1] = ring_geo[num][index]  # 到下一个面片的测地距离，到下一个面片的二面角
+                    feature_dih[i-1] = ring_dih[num][index]  # num是本面片的缩影，去对应矩阵查找，index就是找到了下一个面片
                 else:
-                    feature_geo[i] = -1
-                    feature_dih[i] = -1
-
-            center = meta['center']  # (27648, 3)
-            label = meta['labels']   # (27648, )
-            # label = label - 1   # (0, 1, 2,...)  prepare里面统一
+                    feature_geo[i-1] = -1
+                    feature_dih[i-1] = -1
 
             seq = seq[:-1]
-            label_seq = label[seq]  # (300,)
+            feature_geo = feature_geo[:-1].reshape(self.args.seq_len, 1)
+            feature_dih = feature_dih[:-1].reshape(self.args.seq_len, 1)
+
+            label = meta['labels']  # (27648, )
+            label_seq = label[seq]
+            center = meta['center']  # (27648, 3)# (300,)
             feature_center = center[seq]  # (300, 3)
-            feature_geo = feature_geo[:-1].reshape(300, 1)
-            feature_dih = feature_dih[:-1].reshape(300, 1)
 
             if self.args.pattern == 'test':
-                seq = seq.reshape(300, 1)
+                seq = seq.reshape(self.args.seq_len, 1)
                 feature_seq = np.concatenate((feature_center, feature_geo, feature_dih, seq), axis=1)
             else:
                 feature_seq = np.concatenate((feature_center, feature_geo, feature_dih), axis=1)
 
-            feature_out = np.vstack((feature_out, feature_seq))
+            feature_out = np.vstack((feature_out, feature_seq))  # 把四条序列加起来，为什么不再用一个维度呢
             label_out = np.hstack((label_out, label_seq))
 
         if self.args.pattern == 'test':
@@ -137,62 +132,16 @@ class PSBDataset(Dataset):
             return feature_out, label_out
 
 
-
-
-
-
-
-
-        # f0 = random.randint(0, meta["faces"].shape[0])  # 随机选择初始点f0
-        # seq, jump = get_seq_random_walk_random_global_jumps(meta, f0, 300)
-        #
-        # # 测地距离和二面角的特征
-        # ring = meta['ring']
-        # ring = ring.astype(np.int32)
-        # ring_geo = meta['geodesic']
-        # ring_dih = meta['dihedral']
-        # feature_geo = np.zeros(seq.shape, dtype=float)
-        # feature_dih = np.zeros(seq.shape, dtype=float)
-        #
-        # for i, num in enumerate(seq):  # [7648, 1794, 4065, 5140 ...]
-        #     if i == (len(seq)-1):
-        #         break
-        #     # if jump[i + 1]:      # True 就是代表调过了
-        #     #     feature_geo[i] = -1
-        #     #     feature_dih[i] = -1
-        #     # else:
-        #     #     index = [j for j, x in enumerate(ring[num]) if x == seq[i + 1]][0]
-        #     #     feature_geo[i] = ring_geo[num][index]
-        #     #     feature_dih[i] = ring_dih[num][index]
-        #     index = [j for j, x in enumerate(ring[num]) if x == seq[i + 1]]
-        #     if index:
-        #         index = index[0]
-        #         feature_geo[i] = ring_geo[num][index]
-        #         feature_dih[i] = ring_dih[num][index]
-        #     else:
-        #         feature_geo[i] = -1
-        #         feature_dih[i] = -1
-        #
-        # center = meta['center']   # (27648, 3)
-        # label = meta['labels']    # (27648, )
-        #
-        # seq = seq[:-1]
-        # label_seq = label[seq]  # (300,)
-        # feature_center = center[seq]  # (300, 3)
-        # feature_geo = feature_geo[:-1].reshape(300, 1)
-        # feature_dih = feature_dih[:-1].reshape(300, 1)
-        #
-        # feature_seq = np.concatenate((feature_center, feature_geo, feature_dih), axis=1)
-        #
-        # return feature_seq, label_seq
-
-
-
-
-
 # if __name__ == '__main__':
-#     path = 'datasets_processed/psb/psb_teddy'
-#     dataset = PSBDataset(path)
+#     parser = argparse.ArgumentParser(description='Mesh Transformer')  # 使用命令行参数
+#     parser.add_argument('--pattern', type=str, default="train")
+#     parser.add_argument('--seq_len', type=int, default=300)          # 消融实验
+#     parser.add_argument('--n_walks_per_model', type=int, default=4)
+#
+#     args = parser.parse_args()
+#
+#     path = 'datasets_processed/psb/teddy'
+#     dataset = PSBDataset(args, path)
 #     dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
 #     for data, label in dataloader:
 #         pass

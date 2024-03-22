@@ -20,7 +20,7 @@ import train
 
 def get_model_by_name(name):  # 通过名字获得模型
     mesh_data = np.load(name[0], encoding='latin1', allow_pickle=True)
-    model = {'faces': mesh_data['faces'], 'labels': mesh_data['labels'], 'ring': mesh_data['ring']}
+    model = {'faces': mesh_data['faces'], 'labels': mesh_data['labels'], 'teddy': mesh_data['teddy']}
     return model
 
 
@@ -31,7 +31,7 @@ def postprocess(models, scale):
         av_pred = np.zeros_like(pred_orig)  # 初始化平均结果
         for v in range(model['faces'].shape[0]):  # 看每个顶点周围几个顶点的结果，平均
             this_pred = pred_orig[v]     # 当前顶点的预测结果
-            nbrs_ids = model['ring'][v]  # 周围一圈顶点的索引,从0开始，一个个来
+            nbrs_ids = model['teddy'][v]  # 周围一圈顶点的索引,从0开始，一个个来
             nbrs_ids = np.int64(nbrs_ids)
             nbrs_ids = np.array([n for n in nbrs_ids if n != -1])  # 没游走到的点是-1去掉
             if nbrs_ids.size:

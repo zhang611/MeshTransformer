@@ -1,4 +1,3 @@
-
 from my_dataset import get_seq_random_walk_random_global_jumps
 import numpy as np
 import random
@@ -17,7 +16,7 @@ np.savetxt('matlab/val_20.seg', val_label, fmt='%d', delimiter='\t')
 
 # 加载npz查看
 import numpy as np
-path = r'datasets_processed/psb/psb_teddy/1_not_changed_.npz'
+path = r'datasets_processed/psb/teddy/1_not_changed_.npz'
 mesh_data = np.load(path, encoding='latin1', allow_pickle=True)
 
 

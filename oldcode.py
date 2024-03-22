@@ -4,24 +4,24 @@
 
 
 # # 获得模型的点和面
-# # model_path = r'E:\3DModelData\PSB\Teddy\1.off'
+# # model_path = r'E:\3DModelData\PSB\teddy\1.off'
 # model_path = r'1.off'
 # teddy = load_mesh(model_path)  # TriangleMesh数据，13826个点，27648个面
 # mesh_data = EasyDict({'vertices': np.asarray(teddy.vertices), 'faces': np.asarray(teddy.triangles)})
 #
 # # 获得模型的面标签
-# # label_path = r'E:\3DModelData\PSB\Teddy\1.seg'
+# # label_path = r'E:\3DModelData\PSB\teddy\1.seg'
 # label_path = r'1.seg'
 # label = np.loadtxt(label_path)
 # mesh_data['label'] = label
 #
 # # 获得模型的面特征
-# feature_path = r'E:\3DModelData\PSB\Teddy\Features\1.txt'
+# feature_path = r'E:\3DModelData\PSB\teddy\Features\1.txt'
 # face_feature = np.loadtxt(feature_path)
 # mesh_data['face_feature'] = face_feature  # (27648, 628)
 #
 # # mesh的对偶图，得到面的重心和多边形网格
-# model_path = r'E:\3DModelData\PSB\Teddy\1.off'
+# model_path = r'E:\3DModelData\PSB\teddy\1.off'
 # mesh = meshio.read(model_path)
 # dual_mesh = dualmesh.get_dual(mesh, order=True)
 # mesh_data['face_center'] = dual_mesh.points
@@ -52,7 +52,7 @@
 # normalf = np.loadtxt('matlab/normalf.txt', delimiter='\t')
 # normalf = normalf.T
 #
-# ring = np.loadtxt('ring.txt', delimiter='\t')  # 这个是不是就是周围的一环，就是备选游走点？
+# teddy = np.loadtxt('teddy.txt', delimiter='\t')  # 这个是不是就是周围的一环，就是备选游走点？
 #
 # # 放入mesh_data
 # mesh_data['SDF_Face'] = SDF_Face
@@ -60,7 +60,7 @@
 # mesh_data['normalf'] = normalf
 # mesh_data['geodesicDistances'] = geodesicDistances
 # mesh_data['DihedralAngles'] = DihedralAngles
-# mesh_data['ring'] = ring
+# mesh_data['teddy'] = teddy
 #
 # # 用matlab算，不用这个了
 # # mesh的对偶图，得到面的重心和多边形网格
