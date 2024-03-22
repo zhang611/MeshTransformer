@@ -9,6 +9,7 @@
 /result*/*
 /checkpoints/*
 /temp/*
+/model/*
 
 
 # matlab非代码文件
